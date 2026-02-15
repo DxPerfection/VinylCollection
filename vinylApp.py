@@ -56,20 +56,24 @@ def connectToSheets():
 
 
 # --- DATA OPERATIONS (Functions) ---
+
+# We add caching so the app doesn't call Google API on every click (saving quota and time).
+# ttl=600 means it will auto-refresh every 10 minutes if no button is clicked.
+@st.cache_data(ttl=600)
 def fetchData(worksheetName):
     try:
-        sheet = connectToSheets()
+        sheet = connectToSheets()  # This now connects to "Vinyl Collection"
         ws = sheet.worksheet(worksheetName)
         data = ws.get_all_records()
         df = pd.DataFrame(data)
 
-        # --- DEFINE EMPTY COLUMN NAMES---
+        # Handle empty tables to prevent errors
         if df.empty:
             if worksheetName == "Inventory":
+                # Ensure these columns match your Google Sheet exactly
                 df = pd.DataFrame(columns=["ID", "Artist", "AlbumName", "Genre", "Year", "CoverURL", "Condition"])
             elif worksheetName == "ListeningHistory":
                 df = pd.DataFrame(columns=["Date", "AlbumName", "DurationMins"])
-        # --------------------------------------------------
 
         return df
     except Exception as e:
@@ -94,6 +98,16 @@ def logListeningSession(albumName, durationMinutes):
 
 # --- USER INTERFACE (UI) ---
 st.title("🎵 Vinyl Collection")
+
+# --- SIDEBAR & REFRESH ---
+with st.sidebar:
+    st.header("Settings")
+    # The button returns True when clicked
+    if st.button("🔄 Refresh"):
+        # Clears the cache to force a new API call
+        st.cache_data.clear()
+        # Reruns the entire script immediately
+        st.rerun()
 
 # Fetch Main Data from 'Inventory' tab
 vinylData = fetchData("Inventory")
