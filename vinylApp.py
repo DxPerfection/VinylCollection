@@ -24,9 +24,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# --- GOOGLE SHEETS CONNECTION ---
+# --- GOOGLE SHEETS CONNECTION (MODERN & CLOUD READY) ---
 def connectToSheets():
-    client = gspread.service_account(filename='secrets.json')
+
+    if "gcp_service_account" in st.secrets:
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        client = gspread.service_account_from_dict(creds_dict)
+    else:
+        client = gspread.service_account(filename='secrets.json')
+
     sheet = client.open("Vinyl Collection")
     return sheet
 
