@@ -24,17 +24,35 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# --- GOOGLE SHEETS CONNECTION (MODERN & CLOUD READY) ---
+# --- GOOGLE SHEETS CONNECTION (HYBRID: CLOUD & LOCAL) ---
 def connectToSheets():
+    """
+    Attempts to connect to Google Sheets using either Streamlit Secrets (Cloud)
+    or a local JSON file (Local Development).
+    """
 
-    if "gcp_service_account" in st.secrets:
-        creds_dict = dict(st.secrets["gcp_service_account"])
-        client = gspread.service_account_from_dict(creds_dict)
-    else:
+    # 1. Attempt: Streamlit Cloud Secrets
+    try:
+        # Accessing st.secrets triggers a file search. We wrap it in try-except
+        # to prevent crashing if the secrets.toml file doesn't exist locally.
+        if "gcp_service_account" in st.secrets:
+            creds_dict = dict(st.secrets["gcp_service_account"])
+            client = gspread.service_account_from_dict(creds_dict)
+            return client.open("Vinyl Collection")
+    except Exception:
+        # If accessing st.secrets fails (e.g., running locally without .streamlit folder),
+        # we silently pass and try the local method.
+        pass
+
+    # 2. Attempt: Local JSON File
+    try:
+        # Looks for 'secrets.json' in the same directory
         client = gspread.service_account(filename='secrets.json')
-
-    sheet = client.open("Vinyl Collection")
-    return sheet
+        return client.open("Vinyl Collection")
+    except Exception as e:
+        # Critical Error: Neither method worked
+        st.error(f"Connection Error: Neither Cloud secrets nor local 'secrets.json' found.\nError details: {e}")
+        st.stop()
 
 
 # --- DATA OPERATIONS (Functions) ---
