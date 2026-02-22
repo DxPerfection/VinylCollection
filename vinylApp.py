@@ -180,11 +180,23 @@ if not vinylData.empty:
     try:
         historyData = fetchData("ListeningHistory")
         if not historyData.empty:
+            # Calculate total minutes safely
             totalMinutes = pd.to_numeric(historyData["DurationMins"], errors='coerce').sum()
+
+            # Format to display Hours and Minutes accurately
             totalHours = int(totalMinutes // 60)
-            col3.metric("Total Listening Time", f"{totalHours} Hours")
+            remainingMinutes = int(totalMinutes % 60)
+
+            if totalHours > 0:
+                displayTime = f"{totalHours}h {remainingMinutes}m"
+            else:
+                displayTime = f"{remainingMinutes} Mins"
+
+            col3.metric("Total Listening Time", displayTime)
+        else:
+            col3.metric("Total Listening Time", "0 Mins")
     except:
-        col3.metric("Total Listening Time", "0 Hours")
+        col3.metric("Total Listening Time", "0 Mins")
 
 st.divider()
 
