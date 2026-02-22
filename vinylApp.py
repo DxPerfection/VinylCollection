@@ -1,20 +1,18 @@
 import streamlit as st
 import pandas as pd
-import gspread
 import requests
 import time
 from datetime import datetime
 import json
+from supabase import create_client, Client
 
 # --- GLOBAL UI SETTINGS ---
-# You can easily change the image sizes here (Request 2)
 gridImageWidth = 150
 listImageWidth = 250
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Vinyl Collection", page_icon="🎵", layout="wide")
 
-# --- MODERN UI WITH CSS ---
 st.markdown("""
 <style>
     .stApp {background-color: #0E1117;}
@@ -26,29 +24,31 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# --- DISCOGS API CONFIGURATION ---
-def getDiscogsToken():
+# --- CONFIGURATION & TOKENS ---
+def getSecretsData(keyName):
+    """
+    Retrieves secret tokens (Discogs or Supabase) from Streamlit Secrets or local JSON.
+    """
     try:
-        if "discogs_token" in st.secrets:
-            return st.secrets["discogs_token"]
+        if keyName in st.secrets:
+            return st.secrets[keyName]
     except Exception:
         pass
 
     try:
         with open("secrets.json", "r") as file:
             secretsData = json.load(file)
-            if "discogs_token" in secretsData:
-                return secretsData["discogs_token"]
-            else:
-                st.warning("Discogs token not found inside 'secrets.json'.")
-                return None
-    except Exception as e:
-        st.error(f"Could not read local 'secrets.json' for Discogs token: {e}")
-        return None
+            if keyName in secretsData:
+                return secretsData[keyName]
+    except Exception:
+        pass
+
+    return None
 
 
+# --- DISCOGS API ---
 def searchDiscogsApi(searchQuery):
-    apiToken = getDiscogsToken()
+    apiToken = getSecretsData("discogs_token")
     if not apiToken:
         return []
 
@@ -66,11 +66,7 @@ def searchDiscogsApi(searchQuery):
 
 
 def fetchReleaseDetails(releaseId):
-    """
-    Fetches duration and tracklist from Discogs.
-    Returns a tuple: (totalMinutes, tracklistString)
-    """
-    apiToken = getDiscogsToken()
+    apiToken = getSecretsData("discogs_token")
     if not apiToken:
         return 0, ""
 
@@ -104,57 +100,63 @@ def fetchReleaseDetails(releaseId):
         return 0, ""
 
 
-# --- GOOGLE SHEETS CONNECTION ---
-def connectToSheets():
-    try:
-        if "gcp_service_account" in st.secrets:
-            credsDict = dict(st.secrets["gcp_service_account"])
-            client = gspread.service_account_from_dict(credsDict)
-            return client.open("Vinyl Collection")
-    except Exception:
-        pass
+# --- SUPABASE DATABASE CONNECTIONS ---
+@st.cache_resource
+def initSupabase() -> Client:
+    """
+    Initializes and returns the Supabase client connection.
+    """
+    url = getSecretsData("supabase_url")
+    key = getSecretsData("supabase_key")
 
-    try:
-        client = gspread.service_account(filename='secrets.json')
-        return client.open("Vinyl Collection")
-    except Exception as e:
-        st.error(f"Connection Error: Neither Cloud secrets nor local 'secrets.json' found.\nError details: {e}")
+    if url and key:
+        return create_client(url, key)
+    else:
+        st.error("Supabase credentials are missing. Please check your secrets.")
         st.stop()
 
 
-# --- DATA OPERATIONS ---
 @st.cache_data(ttl=600)
-def fetchData(worksheetName):
+def fetchData(tableName):
+    """
+    Fetches all records from the specified Supabase table.
+    """
     try:
-        sheet = connectToSheets()
-        ws = sheet.worksheet(worksheetName)
-        data = ws.get_all_records()
-        df = pd.DataFrame(data)
+        supabase = initSupabase()
+        # Fetching all data from the specific table
+        response = supabase.table(tableName).select("*").execute()
+        df = pd.DataFrame(response.data)
 
+        # Ensure column structure if table is empty
         if df.empty:
-            if worksheetName == "Inventory":
+            if tableName == "Inventory":
                 df = pd.DataFrame(
                     columns=["ID", "Artist", "AlbumName", "Genre", "Year", "CoverURL", "Condition", "DurationMins",
                              "Tracklist"])
-            elif worksheetName == "ListeningHistory":
-                df = pd.DataFrame(columns=["Date", "AlbumName", "DurationMins"])
+            elif tableName == "ListeningHistory":
+                df = pd.DataFrame(columns=["id", "Date", "AlbumName", "DurationMins"])
         return df
     except Exception as e:
-        st.error(f"Data could not be fetched: {e}")
+        st.error(f"Data could not be fetched from database: {e}")
         return pd.DataFrame()
 
 
-def addNewVinyl(vinylDataList):
-    sheet = connectToSheets()
-    ws = sheet.worksheet("Inventory")
-    ws.append_row(vinylDataList)
+def addNewVinyl(vinylDataDict):
+    """
+    Inserts a new vinyl dictionary record into the Inventory table.
+    """
+    supabase = initSupabase()
+    supabase.table("Inventory").insert(vinylDataDict).execute()
 
 
 def logListeningSession(albumName, durationMinutes):
-    sheet = connectToSheets()
-    ws = sheet.worksheet("ListeningHistory")
+    """
+    Inserts a new listening session into the ListeningHistory table.
+    """
+    supabase = initSupabase()
     currentDate = datetime.now().strftime("%Y-%m-%d %H:%M")
-    ws.append_row([currentDate, albumName, durationMinutes])
+    dataDict = {"Date": currentDate, "AlbumName": albumName, "DurationMins": durationMinutes}
+    supabase.table("ListeningHistory").insert(dataDict).execute()
 
 
 # --- SIDEBAR & REFRESH ---
@@ -199,7 +201,6 @@ with tabGallery:
             searchQuery = c2.text_input("Search Album or Artist")
 
     with colToggle:
-        # Request 3: Layout Toggle
         layoutMode = st.radio("View Layout", ["Grid View", "List View"], horizontal=True)
 
     filteredData = vinylData.copy()
@@ -211,7 +212,6 @@ with tabGallery:
             filteredData["Artist"].str.contains(searchQuery, case=False)
             ]
 
-    # Request 1: Sort by ID descending (Newest first)
     if not filteredData.empty:
         filteredData = filteredData.sort_values(by="ID", ascending=False)
 
@@ -241,12 +241,11 @@ with tabGallery:
                     durationStr = f" | ⏱️ {displayDuration} mins" if displayDuration else ""
                     st.write(f"📅 {row['Year']} | 🏷️ {row['Genre']}{durationStr}")
 
-                    if st.button("I Listened to This", key=f"btnGrid_{idx}"):
+                    if st.button("I Listened to This", key=f"btnGrid_{row['ID']}"):
                         logListeningSession(row["AlbumName"], displayDuration if displayDuration else 45)
                         st.toast(f"Added {row['AlbumName']} to history!")
 
         elif layoutMode == "List View":
-            # Request 4: Single view layout (Image left, details right)
             for idx, row in filteredData.iterrows():
                 colImg, colDetails = st.columns([1, 4])
 
@@ -262,7 +261,6 @@ with tabGallery:
                     st.header(row["AlbumName"])
                     st.subheader(f"🎤 {row['Artist']}")
 
-                    # Tracklist Display
                     tracklistData = row.get("Tracklist", "")
                     if tracklistData:
                         st.markdown("**Tracklist:**")
@@ -279,7 +277,7 @@ with tabGallery:
                     durationStr = f"⏱️ Total Duration: {displayDuration} mins" if displayDuration else "⏱️ Total Duration: Unknown"
                     st.write(f"**{durationStr}** | 📅 {row['Year']} | 🏷️ {row['Genre']}")
 
-                    if st.button("I Listened to This", key=f"btnList_{idx}"):
+                    if st.button("I Listened to This", key=f"btnList_{row['ID']}"):
                         logListeningSession(row["AlbumName"], displayDuration if displayDuration else 45)
                         st.toast(f"Added {row['AlbumName']} to history!")
 
@@ -359,9 +357,21 @@ with tabAdd:
 
             if st.button("Save to Collection", type="primary", key=f"btnSaveApi_{releaseId}"):
                 generatedId = int(time.time())
-                newVinylList = [generatedId, finalArtist, finalAlbum, finalGenre, finalYear, parsedCover,
-                                finalCondition, finalDuration, finalTracklist]
-                addNewVinyl(newVinylList)
+
+                # Dictionary structure for Supabase database insertion
+                newVinylDict = {
+                    "ID": generatedId,
+                    "Artist": finalArtist,
+                    "AlbumName": finalAlbum,
+                    "Genre": finalGenre,
+                    "Year": finalYear,
+                    "CoverURL": parsedCover,
+                    "Condition": finalCondition,
+                    "DurationMins": finalDuration,
+                    "Tracklist": finalTracklist
+                }
+
+                addNewVinyl(newVinylDict)
                 st.success(f"Successfully added {finalAlbum}! Please use the Refresh button on the sidebar.")
                 del st.session_state["apiResults"]
                 st.rerun()
@@ -383,9 +393,20 @@ with tabAdd:
         if st.button("Add Manually", use_container_width=True, key="btnSaveManual"):
             if inputArtist and inputAlbum:
                 generatedId = int(time.time())
-                newVinylList = [generatedId, inputArtist, inputAlbum, inputGenre, inputYear, inputUrl, inputStatus,
-                                inputDuration, inputTracklist]
-                addNewVinyl(newVinylList)
+
+                newVinylDict = {
+                    "ID": generatedId,
+                    "Artist": inputArtist,
+                    "AlbumName": inputAlbum,
+                    "Genre": inputGenre,
+                    "Year": inputYear,
+                    "CoverURL": inputUrl,
+                    "Condition": inputStatus,
+                    "DurationMins": inputDuration,
+                    "Tracklist": inputTracklist
+                }
+
+                addNewVinyl(newVinylDict)
                 st.success(f"Successfully added {inputAlbum}! Please use the Refresh button on the sidebar.")
             else:
                 st.warning("Please enter at least Artist and Album name.")
