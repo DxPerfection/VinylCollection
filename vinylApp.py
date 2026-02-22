@@ -1,8 +1,15 @@
 import streamlit as st
 import pandas as pd
 import gspread
-from datetime import datetime
+import requests
 import time
+from datetime import datetime
+import json
+
+# --- GLOBAL UI SETTINGS ---
+# You can easily change the image sizes here (Request 2)
+gridImageWidth = 150
+listImageWidth = 250
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Vinyl Collection", page_icon="🎵", layout="wide")
@@ -11,70 +18,126 @@ st.set_page_config(page_title="Vinyl Collection", page_icon="🎵", layout="wide
 st.markdown("""
 <style>
     .stApp {background-color: #0E1117;}
-
-    /* Card Design */
     div.css-1r6slb0 {background-color: #262730; border: 1px solid #41444C; border-radius: 10px; padding: 15px;}
-
-    /* Metric Boxes */
     div[data-testid="stMetricValue"] {color: #1DB954; font-size: 28px;}
-
-    /* Buttons */
     .stButton>button {width: 100%; border-radius: 20px;}
+    .tracklist-text {font-size: 14px; color: #A0A0A0; margin-bottom: 2px;}
 </style>
 """, unsafe_allow_html=True)
 
 
-# --- GOOGLE SHEETS CONNECTION (HYBRID: CLOUD & LOCAL) ---
-def connectToSheets():
-    """
-    Attempts to connect to Google Sheets using either Streamlit Secrets (Cloud)
-    or a local JSON file (Local Development).
-    """
-
-    # 1. Attempt: Streamlit Cloud Secrets
+# --- DISCOGS API CONFIGURATION ---
+def getDiscogsToken():
     try:
-        # Accessing st.secrets triggers a file search. We wrap it in try-except
-        # to prevent crashing if the secrets.toml file doesn't exist locally.
-        if "gcp_service_account" in st.secrets:
-            creds_dict = dict(st.secrets["gcp_service_account"])
-            client = gspread.service_account_from_dict(creds_dict)
-            return client.open("Vinyl Collection")
+        if "discogs_token" in st.secrets:
+            return st.secrets["discogs_token"]
     except Exception:
-        # If accessing st.secrets fails (e.g., running locally without .streamlit folder),
-        # we silently pass and try the local method.
         pass
 
-    # 2. Attempt: Local JSON File
     try:
-        # Looks for 'secrets.json' in the same directory
+        with open("secrets.json", "r") as file:
+            secretsData = json.load(file)
+            if "discogs_token" in secretsData:
+                return secretsData["discogs_token"]
+            else:
+                st.warning("Discogs token not found inside 'secrets.json'.")
+                return None
+    except Exception as e:
+        st.error(f"Could not read local 'secrets.json' for Discogs token: {e}")
+        return None
+
+
+def searchDiscogsApi(searchQuery):
+    apiToken = getDiscogsToken()
+    if not apiToken:
+        return []
+
+    apiUrl = f"https://api.discogs.com/database/search?q={searchQuery}&type=release&token={apiToken}"
+    headersInfo = {"User-Agent": "VinylCollectionApp/1.0"}
+
+    try:
+        apiResponse = requests.get(apiUrl, headers=headersInfo)
+        apiResponse.raise_for_status()
+        responseData = apiResponse.json()
+        return responseData.get("results", [])[:10]
+    except Exception as e:
+        st.error(f"API Connection Error: {e}")
+        return []
+
+
+def fetchReleaseDetails(releaseId):
+    """
+    Fetches duration and tracklist from Discogs.
+    Returns a tuple: (totalMinutes, tracklistString)
+    """
+    apiToken = getDiscogsToken()
+    if not apiToken:
+        return 0, ""
+
+    apiUrl = f"https://api.discogs.com/releases/{releaseId}?token={apiToken}"
+    headersInfo = {"User-Agent": "VinylCollectionApp/1.0"}
+
+    try:
+        apiResponse = requests.get(apiUrl, headers=headersInfo)
+        apiResponse.raise_for_status()
+        responseData = apiResponse.json()
+
+        totalSeconds = 0
+        trackNames = []
+
+        for track in responseData.get("tracklist", []):
+            trackTitle = track.get("title", "")
+            if trackTitle:
+                trackNames.append(trackTitle)
+
+            durationStr = track.get("duration", "")
+            if durationStr and ":" in durationStr:
+                try:
+                    minutes, seconds = durationStr.split(":", 1)
+                    totalSeconds += int(minutes) * 60 + int(seconds)
+                except ValueError:
+                    pass
+
+        tracklistString = " | ".join(trackNames)
+        return (totalSeconds // 60), tracklistString
+    except Exception:
+        return 0, ""
+
+
+# --- GOOGLE SHEETS CONNECTION ---
+def connectToSheets():
+    try:
+        if "gcp_service_account" in st.secrets:
+            credsDict = dict(st.secrets["gcp_service_account"])
+            client = gspread.service_account_from_dict(credsDict)
+            return client.open("Vinyl Collection")
+    except Exception:
+        pass
+
+    try:
         client = gspread.service_account(filename='secrets.json')
         return client.open("Vinyl Collection")
     except Exception as e:
-        # Critical Error: Neither method worked
         st.error(f"Connection Error: Neither Cloud secrets nor local 'secrets.json' found.\nError details: {e}")
         st.stop()
 
 
-# --- DATA OPERATIONS (Functions) ---
-
-# We add caching so the app doesn't call Google API on every click (saving quota and time).
-# ttl=600 means it will auto-refresh every 10 minutes if no button is clicked.
+# --- DATA OPERATIONS ---
 @st.cache_data(ttl=600)
 def fetchData(worksheetName):
     try:
-        sheet = connectToSheets()  # This now connects to "Vinyl Collection"
+        sheet = connectToSheets()
         ws = sheet.worksheet(worksheetName)
         data = ws.get_all_records()
         df = pd.DataFrame(data)
 
-        # Handle empty tables to prevent errors
         if df.empty:
             if worksheetName == "Inventory":
-                # Ensure these columns match your Google Sheet exactly
-                df = pd.DataFrame(columns=["ID", "Artist", "AlbumName", "Genre", "Year", "CoverURL", "Condition"])
+                df = pd.DataFrame(
+                    columns=["ID", "Artist", "AlbumName", "Genre", "Year", "CoverURL", "Condition", "DurationMins",
+                             "Tracklist"])
             elif worksheetName == "ListeningHistory":
                 df = pd.DataFrame(columns=["Date", "AlbumName", "DurationMins"])
-
         return df
     except Exception as e:
         st.error(f"Data could not be fetched: {e}")
@@ -83,144 +146,270 @@ def fetchData(worksheetName):
 
 def addNewVinyl(vinylDataList):
     sheet = connectToSheets()
-    # Sheet Name: 'Inventory'
     ws = sheet.worksheet("Inventory")
     ws.append_row(vinylDataList)
 
 
 def logListeningSession(albumName, durationMinutes):
     sheet = connectToSheets()
-    # Sheet Name: 'ListeningHistory'
     ws = sheet.worksheet("ListeningHistory")
     currentDate = datetime.now().strftime("%Y-%m-%d %H:%M")
     ws.append_row([currentDate, albumName, durationMinutes])
 
 
-# --- USER INTERFACE (UI) ---
-st.title("🎵 Vinyl Collection")
-
 # --- SIDEBAR & REFRESH ---
 with st.sidebar:
     st.header("Settings")
-    # The button returns True when clicked
-    if st.button("🔄 Refresh"):
-        # Clears the cache to force a new API call
+    if st.button("🔄 Refresh Data"):
         st.cache_data.clear()
-        # Reruns the entire script immediately
         st.rerun()
 
-# Fetch Main Data from 'Inventory' tab
-vinylData = fetchData("Inventory")
+# --- USER INTERFACE (UI) ---
+st.title("🎵 Vinyl Collection")
 
-# --- HATA AYIKLAMA KODU (DEBUG) ---
-# st.write("Google Sheets'ten gelen sütunlar:")
-# st.write(vinylData.columns.tolist())
+vinylData = fetchData("Inventory")
 
 # --- TOP PANEL (METRICS) ---
 if not vinylData.empty:
     col1, col2, col3 = st.columns(3)
     col1.metric("Total Vinyls", len(vinylData))
-
-    # Column Name: 'Genre'
     col2.metric("Favorite Genre", vinylData['Genre'].mode()[0] if not vinylData.empty else "-")
 
-    # Calculate listening history
     try:
-        # Sheet Name: 'ListeningHistory'
         historyData = fetchData("ListeningHistory")
         if not historyData.empty:
-            # Column Name: 'DurationMins'
-            totalMinutes = historyData["DurationMins"].sum()
-            totalHours = totalMinutes // 60
+            totalMinutes = pd.to_numeric(historyData["DurationMins"], errors='coerce').sum()
+            totalHours = int(totalMinutes // 60)
             col3.metric("Total Listening Time", f"{totalHours} Hours")
     except:
         col3.metric("Total Listening Time", "0 Hours")
 
 st.divider()
 
-# --- TABS (Updated to English) ---
-tabGallery, tabAdd, tabLog = st.tabs(["💿 Collection (Gallery)", "➕ Add New", "🎧 Listening Log"])
+# --- TABS ---
+tabGallery, tabAdd, tabLog = st.tabs(["💿 Collection", "➕ Add New", "🎧 Listening Log"])
 
-# TAB 1: GALLERY VIEW
+# TAB 1: COLLECTION VIEW
 with tabGallery:
-    with st.expander("🔍 Filter Options", expanded=False):
-        c1, c2 = st.columns(2)
-        # Column Name: 'Genre'
-        selectedGenres = c1.multiselect("Select Genre", vinylData["Genre"].unique())
-        searchQuery = c2.text_input("Search Album or Artist")
+    colFilter, colToggle = st.columns([3, 1])
+    with colFilter:
+        with st.expander("🔍 Filter Options", expanded=False):
+            c1, c2 = st.columns(2)
+            selectedGenres = c1.multiselect("Select Genre", vinylData["Genre"].unique())
+            searchQuery = c2.text_input("Search Album or Artist")
 
-    # Filtering Logic
+    with colToggle:
+        # Request 3: Layout Toggle
+        layoutMode = st.radio("View Layout", ["Grid View", "List View"], horizontal=True)
+
     filteredData = vinylData.copy()
     if selectedGenres:
         filteredData = filteredData[filteredData["Genre"].isin(selectedGenres)]
     if searchQuery:
-        # Column Names: 'AlbumName', 'Artist'
         filteredData = filteredData[
             filteredData["AlbumName"].str.contains(searchQuery, case=False) |
             filteredData["Artist"].str.contains(searchQuery, case=False)
             ]
 
-    # Grid Structure
-    colsPerRow = 3
+    # Request 1: Sort by ID descending (Newest first)
     if not filteredData.empty:
-        gridRows = [st.columns(colsPerRow) for _ in range((len(filteredData) // colsPerRow) + 1)]
+        filteredData = filteredData.sort_values(by="ID", ascending=False)
 
-        for index, (idx, row) in enumerate(filteredData.iterrows()):
-            rowIndex = index // colsPerRow
-            colIndex = index % colsPerRow
+    st.write("---")
 
-            with gridRows[rowIndex][colIndex]:
-                st.markdown("---")
-                # Column Name: 'CoverURL'
-                coverUrl = row["CoverURL"]
-                if coverUrl and str(coverUrl).startswith("http"):
-                    st.image(coverUrl, use_container_width=True)
-                else:
-                    st.image("https://upload.wikimedia.org/wikipedia/commons/b/b6/12in-Vinyl-LP-Record-Angle.jpg",
-                             use_container_width=True)
+    if not filteredData.empty:
+        if layoutMode == "Grid View":
+            colsPerRow = 3
+            gridRows = [st.columns(colsPerRow) for _ in range((len(filteredData) // colsPerRow) + 1)]
 
-                # Display Data
-                st.subheader(row["AlbumName"])
-                st.caption(f"🎤 {row['Artist']}")
-                st.write(f"📅 {row['Year']} | 🏷️ {row['Genre']}")
+            for index, (idx, row) in enumerate(filteredData.iterrows()):
+                rowIndex = index // colsPerRow
+                colIndex = index % colsPerRow
 
-                if st.button("I Listened to This", key=f"btn_{idx}"):
-                    logListeningSession(row["AlbumName"], 45)
-                    st.toast(f"Added {row['AlbumName']} to history!")
+                with gridRows[rowIndex][colIndex]:
+                    coverUrl = row.get("CoverURL", "")
+                    if coverUrl and str(coverUrl).startswith("http"):
+                        st.image(coverUrl, width=gridImageWidth)
+                    else:
+                        st.image("https://upload.wikimedia.org/wikipedia/commons/b/b6/12in-Vinyl-LP-Record-Angle.jpg",
+                                 width=gridImageWidth)
+
+                    st.subheader(row["AlbumName"])
+                    st.caption(f"🎤 {row['Artist']}")
+
+                    displayDuration = row.get("DurationMins", 0)
+                    durationStr = f" | ⏱️ {displayDuration} mins" if displayDuration else ""
+                    st.write(f"📅 {row['Year']} | 🏷️ {row['Genre']}{durationStr}")
+
+                    if st.button("I Listened to This", key=f"btnGrid_{idx}"):
+                        logListeningSession(row["AlbumName"], displayDuration if displayDuration else 45)
+                        st.toast(f"Added {row['AlbumName']} to history!")
+
+        elif layoutMode == "List View":
+            # Request 4: Single view layout (Image left, details right)
+            for idx, row in filteredData.iterrows():
+                colImg, colDetails = st.columns([1, 4])
+
+                with colImg:
+                    coverUrl = row.get("CoverURL", "")
+                    if coverUrl and str(coverUrl).startswith("http"):
+                        st.image(coverUrl, width=listImageWidth)
+                    else:
+                        st.image("https://upload.wikimedia.org/wikipedia/commons/b/b6/12in-Vinyl-LP-Record-Angle.jpg",
+                                 width=listImageWidth)
+
+                with colDetails:
+                    st.header(row["AlbumName"])
+                    st.subheader(f"🎤 {row['Artist']}")
+
+                    # Tracklist Display
+                    tracklistData = row.get("Tracklist", "")
+                    if tracklistData:
+                        st.markdown("**Tracklist:**")
+                        tracks = str(tracklistData).split(" | ")
+                        for trackNum, trackName in enumerate(tracks, 1):
+                            st.markdown(f"<div class='tracklist-text'>{trackNum}. {trackName}</div>",
+                                        unsafe_allow_html=True)
+                    else:
+                        st.write("*No tracklist available.*")
+
+                    st.write("---")
+
+                    displayDuration = row.get("DurationMins", 0)
+                    durationStr = f"⏱️ Total Duration: {displayDuration} mins" if displayDuration else "⏱️ Total Duration: Unknown"
+                    st.write(f"**{durationStr}** | 📅 {row['Year']} | 🏷️ {row['Genre']}")
+
+                    if st.button("I Listened to This", key=f"btnList_{idx}"):
+                        logListeningSession(row["AlbumName"], displayDuration if displayDuration else 45)
+                        st.toast(f"Added {row['AlbumName']} to history!")
+
+                st.write("---")
 
 # TAB 2: ADD NEW VINYL
 with tabAdd:
     st.header("Add New Vinyl")
-    colA, colB = st.columns(2)
+    subTabApi, subTabManual = st.tabs(["Search via Discogs API", "Manual Entry"])
 
-    with colA:
-        inputArtist = st.text_input("Artist Name")
-        inputAlbum = st.text_input("Album Name")
-        inputYear = st.text_input("Year")
+    with subTabApi:
+        apiSearchInput = st.text_input("Search Artist or Album on Discogs", key="discogsSearch")
 
-    with colB:
-        inputGenre = st.selectbox("Genre", ["Rock", "Jazz", "Pop", "Electronic", "Classical", "Hip-Hop", "Metal"])
-        inputUrl = st.text_input("Cover Image URL")
-        inputStatus = st.selectbox("Condition", ["New", "Used", "Mint", "Fair"])
+        if st.button("Search Database", key="btnSearchApi"):
+            if apiSearchInput:
+                with st.spinner("Searching Discogs..."):
+                    st.session_state["apiResults"] = searchDiscogsApi(apiSearchInput)
+            else:
+                st.warning("Please enter a search term.")
 
-    if st.button("Add to Collection", use_container_width=True):
-        if inputArtist and inputAlbum:
-            generatedId = int(time.time())
-            # Columns: ID, Artist, AlbumName, Genre, Year, CoverURL, Condition
-            newVinylList = [generatedId, inputArtist, inputAlbum, inputGenre, inputYear, inputUrl, inputStatus]
-            addNewVinyl(newVinylList)
-            st.success(f"Successfully added {inputAlbum}! Refresh to see changes.")
-        else:
-            st.warning("Please enter at least Artist and Album name.")
+        if "apiResults" in st.session_state and st.session_state["apiResults"]:
+            st.markdown("### Select the Correct Release")
+
+            resultOptions = [f"{item.get('title', 'Unknown Title')} ({item.get('year', 'Unknown Year')})" for item in
+                             st.session_state["apiResults"]]
+
+            selectedResult = st.selectbox("Matching Results", resultOptions)
+            selectedIndex = resultOptions.index(selectedResult)
+            selectedData = st.session_state["apiResults"][selectedIndex]
+
+            releaseId = selectedData.get("id", selectedIndex)
+
+            if f"details_{releaseId}" not in st.session_state:
+                with st.spinner("Fetching album details and tracks..."):
+                    st.session_state[f"details_{releaseId}"] = fetchReleaseDetails(releaseId)
+
+            fetchedDuration, fetchedTracklist = st.session_state[f"details_{releaseId}"]
+
+            if fetchedDuration == 0:
+                st.info("Discogs does not have track durations for this release. You can enter it manually below.")
+
+            st.write("---")
+            st.markdown("### Preview and Edit Data")
+
+            fullTitle = selectedData.get("title", "Unknown - Unknown")
+            if " - " in fullTitle:
+                parsedArtist, parsedAlbum = fullTitle.split(" - ", 1)
+            else:
+                parsedArtist = "Unknown Artist"
+                parsedAlbum = fullTitle
+
+            parsedYear = str(selectedData.get("year", "N/A"))
+            parsedCover = selectedData.get("cover_image", "")
+            parsedGenre = selectedData.get("genre", ["Unknown Genre"])[0] if selectedData.get(
+                "genre") else "Unknown Genre"
+
+            colCover, colEdit = st.columns([1, 2])
+            with colCover:
+                if parsedCover:
+                    st.image(parsedCover, use_container_width=True)
+
+            with colEdit:
+                finalArtist = st.text_input("Artist", value=parsedArtist, key=f"apiArtist_{releaseId}")
+                finalAlbum = st.text_input("Album Name", value=parsedAlbum, key=f"apiAlbum_{releaseId}")
+                finalGenre = st.text_input("Genre", value=parsedGenre, key=f"apiGenre_{releaseId}")
+
+                cYear, cDur = st.columns(2)
+                with cYear:
+                    finalYear = st.text_input("Year", value=parsedYear, key=f"apiYear_{releaseId}")
+                with cDur:
+                    finalDuration = st.number_input("Duration (Mins)", value=fetchedDuration, key=f"apiDur_{releaseId}")
+
+                finalTracklist = st.text_area("Tracklist (Separated by |)", value=fetchedTracklist,
+                                              key=f"apiTrack_{releaseId}")
+                finalCondition = st.selectbox("Condition", ["New", "Used", "Mint", "Fair"],
+                                              key=f"apiCondition_{releaseId}")
+
+            if st.button("Save to Collection", type="primary", key=f"btnSaveApi_{releaseId}"):
+                generatedId = int(time.time())
+                newVinylList = [generatedId, finalArtist, finalAlbum, finalGenre, finalYear, parsedCover,
+                                finalCondition, finalDuration, finalTracklist]
+                addNewVinyl(newVinylList)
+                st.success(f"Successfully added {finalAlbum}! Please use the Refresh button on the sidebar.")
+                del st.session_state["apiResults"]
+                st.rerun()
+
+    with subTabManual:
+        colA, colB = st.columns(2)
+        with colA:
+            inputArtist = st.text_input("Artist Name", key="manArtist")
+            inputAlbum = st.text_input("Album Name", key="manAlbum")
+            inputYear = st.text_input("Year", key="manYear")
+            inputDuration = st.number_input("Duration (Mins)", min_value=0, value=45, key="manDur")
+            inputTracklist = st.text_area("Tracklist (Optional, format: Song1 | Song2)", key="manTrack")
+        with colB:
+            inputGenre = st.selectbox("Genre", ["Rock", "Jazz", "Pop", "Electronic", "Classical", "Hip-Hop", "Metal"],
+                                      key="manGenre")
+            inputUrl = st.text_input("Cover Image URL", key="manUrl")
+            inputStatus = st.selectbox("Condition", ["New", "Used", "Mint", "Fair"], key="manCondition")
+
+        if st.button("Add Manually", use_container_width=True, key="btnSaveManual"):
+            if inputArtist and inputAlbum:
+                generatedId = int(time.time())
+                newVinylList = [generatedId, inputArtist, inputAlbum, inputGenre, inputYear, inputUrl, inputStatus,
+                                inputDuration, inputTracklist]
+                addNewVinyl(newVinylList)
+                st.success(f"Successfully added {inputAlbum}! Please use the Refresh button on the sidebar.")
+            else:
+                st.warning("Please enter at least Artist and Album name.")
 
 # TAB 3: LOG LISTENING SESSION
 with tabLog:
-    st.header("Manual Listening Entry")
-    # Column Name: 'AlbumName'
-    selectedAlbum = st.selectbox("Select Album", vinylData["AlbumName"].unique())
-    durationSlider = st.slider("Duration (Minutes)", 10, 180, 45)
+    st.header("Automatic Listening Entry")
 
-    if st.button("Log Session"):
-        logListeningSession(selectedAlbum, durationSlider)
-        st.balloons()
-        st.success("Session logged! Enjoy the music.")
+    if not vinylData.empty:
+        selectedFilterArtist = st.selectbox("Select Artist", vinylData["Artist"].unique(), key="logArtist")
+        artistAlbumsData = vinylData[vinylData["Artist"] == selectedFilterArtist]
+        selectedFilterAlbum = st.selectbox("Select Album", artistAlbumsData["AlbumName"].unique(), key="logAlbum")
+
+        albumRowInfo = artistAlbumsData[artistAlbumsData["AlbumName"] == selectedFilterAlbum].iloc[0]
+        albumDurationInfo = albumRowInfo.get("DurationMins", 0)
+
+        if pd.isna(albumDurationInfo) or albumDurationInfo == "":
+            albumDurationInfo = 0
+
+        st.info(f"Duration to be logged: **{albumDurationInfo} minutes**")
+
+        if st.button("Log Session"):
+            logListeningSession(selectedFilterAlbum, int(albumDurationInfo))
+            st.balloons()
+            st.success("Session logged! Enjoy the music. Use Refresh button to update stats.")
+    else:
+        st.warning("Your collection is currently empty. Please add a vinyl first.")
