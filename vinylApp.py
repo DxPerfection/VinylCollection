@@ -6,6 +6,7 @@ from datetime import datetime
 import json
 import base64
 from supabase import create_client, Client
+import re
 
 # --- GLOBAL UI SETTINGS ---
 gridImageWidth = 150
@@ -27,9 +28,6 @@ st.markdown("""
 
 # --- CONFIGURATION & TOKENS ---
 def getSecretsData(keyName):
-    """
-    Retrieves secret tokens from Streamlit Secrets or local JSON.
-    """
     try:
         if keyName in st.secrets:
             return st.secrets[keyName]
@@ -43,16 +41,11 @@ def getSecretsData(keyName):
                 return secretsData[keyName]
     except Exception:
         pass
-
     return None
 
 
 # --- SPOTIFY API (FOR HD COVERS & EXACT DURATION) ---
 def fetchSpotifyData(artistName, albumName):
-    """
-    Fetches high-quality cover image and exact total duration from Spotify.
-    Returns a tuple: (coverUrl, durationMins)
-    """
     clientId = getSecretsData("spotify_client_id")
     clientSecret = getSecretsData("spotify_client_secret")
 
@@ -60,7 +53,6 @@ def fetchSpotifyData(artistName, albumName):
         return "", 0
 
     try:
-        # 1. Authenticate and get Token
         authString = f"{clientId}:{clientSecret}"
         authBase64 = base64.b64encode(authString.encode("utf-8")).decode("utf-8")
         tokenUrl = "https://accounts.spotify.com/api/token"
@@ -71,7 +63,6 @@ def fetchSpotifyData(artistName, albumName):
         tokenResponse.raise_for_status()
         accessToken = tokenResponse.json().get("access_token")
 
-        # 2. Search for the Album
         searchQuery = f"artist:{artistName} album:{albumName}"
         searchUrl = "https://api.spotify.com/v1/search"
         searchHeaders = {"Authorization": f"Bearer {accessToken}"}
@@ -86,11 +77,9 @@ def fetchSpotifyData(artistName, albumName):
 
         targetAlbum = albumsData[0]
 
-        # Extract highest quality image (usually index 0)
         imagesList = targetAlbum.get("images", [])
         spotifyCoverUrl = imagesList[0].get("url", "") if imagesList else ""
 
-        # 3. Get exact track durations
         albumId = targetAlbum.get("id")
         albumDetailsUrl = f"https://api.spotify.com/v1/albums/{albumId}"
         albumDetailsResponse = requests.get(albumDetailsUrl, headers=searchHeaders)
@@ -101,13 +90,11 @@ def fetchSpotifyData(artistName, albumName):
         spotifyDurationMins = totalMilliseconds // 60000
 
         return spotifyCoverUrl, spotifyDurationMins
-
     except Exception:
-        # Fails silently and falls back to Discogs data if Spotify fails
         return "", 0
 
 
-# --- DISCOGS API (FOR SEARCH & TRACKLIST) ---
+# --- DISCOGS API (FOR SEARCH, TRACKLIST & SUBGENRE) ---
 def searchDiscogsApi(searchQuery):
     apiToken = getSecretsData("discogs_token")
     if not apiToken:
@@ -127,9 +114,12 @@ def searchDiscogsApi(searchQuery):
 
 
 def fetchReleaseDetails(releaseId):
+    """
+    Returns a tuple: (totalMinutes, tracklistString, subGenreString)
+    """
     apiToken = getSecretsData("discogs_token")
     if not apiToken:
-        return 0, ""
+        return 0, "", ""
 
     apiUrl = f"https://api.discogs.com/releases/{releaseId}?token={apiToken}"
     headersInfo = {"User-Agent": "VinylCollectionApp/2.0"}
@@ -139,9 +129,9 @@ def fetchReleaseDetails(releaseId):
         apiResponse.raise_for_status()
         responseData = apiResponse.json()
 
+        # Calculate duration and tracklist
         totalSeconds = 0
         trackNames = []
-
         for track in responseData.get("tracklist", []):
             trackTitle = track.get("title", "")
             if trackTitle:
@@ -156,9 +146,14 @@ def fetchReleaseDetails(releaseId):
                     pass
 
         tracklistString = " | ".join(trackNames)
-        return (totalSeconds // 60), tracklistString
+
+        # Extract SubGenre (Style)
+        styleList = responseData.get("styles", [])
+        subGenreString = ", ".join(styleList) if styleList else ""
+
+        return (totalSeconds // 60), tracklistString, subGenreString
     except Exception:
-        return 0, ""
+        return 0, "", ""
 
 
 # --- SUPABASE DATABASE CONNECTIONS ---
@@ -170,7 +165,7 @@ def initSupabase() -> Client:
     if url and key:
         return create_client(url, key)
     else:
-        st.error("Supabase credentials are missing. Please check your secrets.")
+        st.error("Supabase credentials are missing.")
         st.stop()
 
 
@@ -184,8 +179,8 @@ def fetchData(tableName):
         if df.empty:
             if tableName == "Inventory":
                 df = pd.DataFrame(
-                    columns=["ID", "Artist", "AlbumName", "Genre", "Year", "CoverURL", "Condition", "DurationMins",
-                             "Tracklist"])
+                    columns=["ID", "Artist", "AlbumName", "Genre", "SubGenre", "Year", "CoverURL", "Condition",
+                             "DurationMins", "Tracklist"])
             elif tableName == "ListeningHistory":
                 df = pd.DataFrame(columns=["id", "Date", "AlbumName", "DurationMins"])
         return df
@@ -197,6 +192,16 @@ def fetchData(tableName):
 def addNewVinyl(vinylDataDict):
     supabase = initSupabase()
     supabase.table("Inventory").insert(vinylDataDict).execute()
+
+
+def updateVinyl(vinylId, updateDataDict):
+    supabase = initSupabase()
+    supabase.table("Inventory").update(updateDataDict).eq("ID", vinylId).execute()
+
+
+def deleteVinyl(vinylId):
+    supabase = initSupabase()
+    supabase.table("Inventory").delete().eq("ID", vinylId).execute()
 
 
 def logListeningSession(albumName, durationMinutes):
@@ -245,7 +250,8 @@ if not vinylData.empty:
 st.divider()
 
 # --- TABS ---
-tabGallery, tabAdd, tabLog = st.tabs(["💿 Collection", "➕ Add New", "🎧 Listening Log"])
+tabGallery, tabAdd, tabLog, tabManage = st.tabs(
+    ["💿 Collection", "➕ Add New", "🎧 Listening Log", "⚙️ Manage Collection"])
 
 # TAB 1: COLLECTION VIEW
 with tabGallery:
@@ -295,7 +301,11 @@ with tabGallery:
 
                     displayDuration = row.get("DurationMins", 0)
                     durationStr = f" | ⏱️ {displayDuration} mins" if displayDuration else ""
-                    st.write(f"📅 {row['Year']} | 🏷️ {row['Genre']}{durationStr}")
+
+                    subGenreStr = f" ({row.get('SubGenre', '')})" if pd.notna(row.get('SubGenre')) and row.get(
+                        'SubGenre') else ""
+
+                    st.write(f"📅 {row['Year']} | 🏷️ {row['Genre']}{subGenreStr}{durationStr}")
 
                     if st.button("I Listened to This", key=f"btnGrid_{row['ID']}"):
                         logListeningSession(row["AlbumName"], displayDuration if displayDuration else 45)
@@ -331,7 +341,11 @@ with tabGallery:
 
                     displayDuration = row.get("DurationMins", 0)
                     durationStr = f"⏱️ Total Duration: {displayDuration} mins" if displayDuration else "⏱️ Total Duration: Unknown"
-                    st.write(f"**{durationStr}** | 📅 {row['Year']} | 🏷️ {row['Genre']}")
+
+                    subGenreStr = f" ({row.get('SubGenre', '')})" if pd.notna(row.get('SubGenre')) and row.get(
+                        'SubGenre') else ""
+
+                    st.write(f"**{durationStr}** | 📅 {row['Year']} | 🏷️ {row['Genre']}{subGenreStr}")
 
                     if st.button("I Listened to This", key=f"btnList_{row['ID']}"):
                         logListeningSession(row["AlbumName"], displayDuration if displayDuration else 45)
@@ -366,30 +380,23 @@ with tabAdd:
 
             releaseId = selectedData.get("id", selectedIndex)
 
-            # --- FRANKENSTEIN DATA FETCH (DISCOGS + SPOTIFY) ---
             if f"details_{releaseId}" not in st.session_state:
                 with st.spinner("Fetching data from Discogs and Spotify..."):
-                    # Extract Artist and Album for Spotify search
                     tempTitle = selectedData.get("title", "Unknown - Unknown")
                     if " - " in tempTitle:
                         tempArtist, tempAlbum = tempTitle.split(" - ", 1)
                     else:
                         tempArtist, tempAlbum = "Unknown", tempTitle
 
-                    # 1. Fetch Discogs Tracklist & Duration
-                    discogsDur, fetchedTracklist = fetchReleaseDetails(releaseId)
-
-                    # 2. Fetch Spotify HD Cover & Exact Duration
+                    discogsDur, fetchedTracklist, fetchedSubGenre = fetchReleaseDetails(releaseId)
                     spotifyCover, spotifyDur = fetchSpotifyData(tempArtist, tempAlbum)
-
-                    # 3. Merge Best Data
                     finalDur = spotifyDur if spotifyDur > 0 else discogsDur
 
-                    # Store in session
                     st.session_state[f"details_{releaseId}"] = {
                         "tracklist": fetchedTracklist,
                         "duration": finalDur,
-                        "spotifyCover": spotifyCover
+                        "spotifyCover": spotifyCover,
+                        "subGenre": fetchedSubGenre
                     }
 
             mergedData = st.session_state[f"details_{releaseId}"]
@@ -407,8 +414,6 @@ with tabAdd:
             parsedYear = str(selectedData.get("year", "N/A"))
             parsedGenre = selectedData.get("genre", ["Unknown Genre"])[0] if selectedData.get(
                 "genre") else "Unknown Genre"
-
-            # Use Spotify Cover if available, else fallback to Discogs thumbnail
             parsedCover = mergedData["spotifyCover"] if mergedData["spotifyCover"] else selectedData.get("cover_image",
                                                                                                          "")
 
@@ -422,7 +427,13 @@ with tabAdd:
             with colEdit:
                 finalArtist = st.text_input("Artist", value=parsedArtist, key=f"apiArtist_{releaseId}")
                 finalAlbum = st.text_input("Album Name", value=parsedAlbum, key=f"apiAlbum_{releaseId}")
-                finalGenre = st.text_input("Genre", value=parsedGenre, key=f"apiGenre_{releaseId}")
+
+                cGen, cSubGen = st.columns(2)
+                with cGen:
+                    finalGenre = st.text_input("Genre", value=parsedGenre, key=f"apiGenre_{releaseId}")
+                with cSubGen:
+                    finalSubGenre = st.text_input("Sub-Genre", value=mergedData["subGenre"],
+                                                  key=f"apiSubGenre_{releaseId}")
 
                 cYear, cDur = st.columns(2)
                 with cYear:
@@ -444,6 +455,7 @@ with tabAdd:
                     "Artist": finalArtist,
                     "AlbumName": finalAlbum,
                     "Genre": finalGenre,
+                    "SubGenre": finalSubGenre,
                     "Year": finalYear,
                     "CoverURL": parsedCover,
                     "Condition": finalCondition,
@@ -452,7 +464,7 @@ with tabAdd:
                 }
 
                 addNewVinyl(newVinylDict)
-                st.success(f"Successfully added {finalAlbum}! Please use the Refresh button on the sidebar.")
+                st.success(f"Successfully added {finalAlbum}! Please use the Refresh button.")
                 del st.session_state["apiResults"]
                 st.rerun()
 
@@ -467,6 +479,7 @@ with tabAdd:
         with colB:
             inputGenre = st.selectbox("Genre", ["Rock", "Jazz", "Pop", "Electronic", "Classical", "Hip-Hop", "Metal"],
                                       key="manGenre")
+            inputSubGenre = st.text_input("Sub-Genre (Optional)", key="manSubGenre")
             inputUrl = st.text_input("Cover Image URL", key="manUrl")
             inputStatus = st.selectbox("Condition", ["New", "Used", "Mint", "Fair"], key="manCondition")
 
@@ -479,6 +492,7 @@ with tabAdd:
                     "Artist": inputArtist,
                     "AlbumName": inputAlbum,
                     "Genre": inputGenre,
+                    "SubGenre": inputSubGenre,
                     "Year": inputYear,
                     "CoverURL": inputUrl,
                     "Condition": inputStatus,
@@ -487,7 +501,7 @@ with tabAdd:
                 }
 
                 addNewVinyl(newVinylDict)
-                st.success(f"Successfully added {inputAlbum}! Please use the Refresh button on the sidebar.")
+                st.success(f"Successfully added {inputAlbum}! Please use the Refresh button.")
             else:
                 st.warning("Please enter at least Artist and Album name.")
 
@@ -514,3 +528,87 @@ with tabLog:
             st.success("Session logged! Enjoy the music. Use Refresh button to update stats.")
     else:
         st.warning("Your collection is currently empty. Please add a vinyl first.")
+
+# TAB 4: MANAGE COLLECTION (EDIT/DELETE)
+with tabManage:
+    st.header("Manage Your Collection")
+
+    if not vinylData.empty:
+        vinylOptions = [f"{row['Artist']} - {row['AlbumName']} (ID: {row['ID']})" for idx, row in vinylData.iterrows()]
+        selectedVinylStr = st.selectbox("Select Vinyl to Edit or Delete", vinylOptions, key="manageSelect")
+
+        # Extract the ID from the selected string using regular expressions
+        match = re.search(r"\(ID: (\d+)\)", selectedVinylStr)
+        if match:
+            selectedId = int(match.group(1))
+            targetRow = vinylData[vinylData["ID"] == selectedId].iloc[0]
+
+            st.write("---")
+            colImgMng, colEditMng = st.columns([1, 3])
+
+            with colImgMng:
+                coverUrlMng = targetRow.get("CoverURL", "")
+                if coverUrlMng and str(coverUrlMng).startswith("http"):
+                    st.image(coverUrlMng, use_container_width=True)
+                else:
+                    st.image("https://upload.wikimedia.org/wikipedia/commons/b/b6/12in-Vinyl-LP-Record-Angle.jpg",
+                             use_container_width=True)
+
+            with colEditMng:
+                updArtist = st.text_input("Artist", value=targetRow.get("Artist", ""), key=f"updArt_{selectedId}")
+                updAlbum = st.text_input("Album Name", value=targetRow.get("AlbumName", ""), key=f"updAlb_{selectedId}")
+
+                cGenMng, cSubGenMng = st.columns(2)
+                with cGenMng:
+                    updGenre = st.text_input("Genre", value=targetRow.get("Genre", ""), key=f"updGen_{selectedId}")
+                with cSubGenMng:
+                    # Handle NaN values for SubGenre safely
+                    currentSubGenre = targetRow.get("SubGenre", "")
+                    if pd.isna(currentSubGenre):
+                        currentSubGenre = ""
+                    updSubGenre = st.text_input("Sub-Genre", value=currentSubGenre, key=f"updSub_{selectedId}")
+
+                cYearMng, cDurMng = st.columns(2)
+                with cYearMng:
+                    updYear = st.text_input("Year", value=str(targetRow.get("Year", "")), key=f"updYear_{selectedId}")
+                with cDurMng:
+                    currentDur = targetRow.get("DurationMins", 0)
+                    if pd.isna(currentDur) or currentDur == "":
+                        currentDur = 0
+                    updDuration = st.number_input("Duration (Mins)", value=int(currentDur), key=f"updDur_{selectedId}")
+
+                updTracklist = st.text_area("Tracklist", value=targetRow.get("Tracklist", ""),
+                                            key=f"updTrack_{selectedId}")
+
+                conditionOptions = ["New", "Used", "Mint", "Fair"]
+                currentCond = targetRow.get("Condition", "Used")
+                if currentCond not in conditionOptions:
+                    conditionOptions.append(currentCond)
+                updCondition = st.selectbox("Condition", conditionOptions, index=conditionOptions.index(currentCond),
+                                            key=f"updCond_{selectedId}")
+
+                updCover = st.text_input("Cover URL", value=targetRow.get("CoverURL", ""), key=f"updCov_{selectedId}")
+
+                colBtnUpdate, colBtnDelete = st.columns(2)
+                with colBtnUpdate:
+                    if st.button("💾 Update Record", use_container_width=True, type="primary"):
+                        updatedDataDict = {
+                            "Artist": updArtist,
+                            "AlbumName": updAlbum,
+                            "Genre": updGenre,
+                            "SubGenre": updSubGenre,
+                            "Year": updYear,
+                            "DurationMins": updDuration,
+                            "Tracklist": updTracklist,
+                            "Condition": updCondition,
+                            "CoverURL": updCover
+                        }
+                        updateVinyl(selectedId, updatedDataDict)
+                        st.success("Record updated successfully! Please refresh.")
+
+                with colBtnDelete:
+                    if st.button("🗑️ Delete Record", use_container_width=True):
+                        deleteVinyl(selectedId)
+                        st.error(f"{updAlbum} has been deleted! Please refresh.")
+    else:
+        st.info("Your collection is currently empty.")
