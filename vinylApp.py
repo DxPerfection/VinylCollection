@@ -4,6 +4,7 @@ import requests
 import time
 from datetime import datetime
 import json
+import base64
 from supabase import create_client, Client
 
 # --- GLOBAL UI SETTINGS ---
@@ -27,7 +28,7 @@ st.markdown("""
 # --- CONFIGURATION & TOKENS ---
 def getSecretsData(keyName):
     """
-    Retrieves secret tokens (Discogs or Supabase) from Streamlit Secrets or local JSON.
+    Retrieves secret tokens from Streamlit Secrets or local JSON.
     """
     try:
         if keyName in st.secrets:
@@ -46,14 +47,74 @@ def getSecretsData(keyName):
     return None
 
 
-# --- DISCOGS API ---
+# --- SPOTIFY API (FOR HD COVERS & EXACT DURATION) ---
+def fetchSpotifyData(artistName, albumName):
+    """
+    Fetches high-quality cover image and exact total duration from Spotify.
+    Returns a tuple: (coverUrl, durationMins)
+    """
+    clientId = getSecretsData("spotify_client_id")
+    clientSecret = getSecretsData("spotify_client_secret")
+
+    if not clientId or not clientSecret:
+        return "", 0
+
+    try:
+        # 1. Authenticate and get Token
+        authString = f"{clientId}:{clientSecret}"
+        authBase64 = base64.b64encode(authString.encode("utf-8")).decode("utf-8")
+        tokenUrl = "https://accounts.spotify.com/api/token"
+        tokenHeaders = {"Authorization": f"Basic {authBase64}", "Content-Type": "application/x-www-form-urlencoded"}
+        tokenData = {"grant_type": "client_credentials"}
+
+        tokenResponse = requests.post(tokenUrl, headers=tokenHeaders, data=tokenData)
+        tokenResponse.raise_for_status()
+        accessToken = tokenResponse.json().get("access_token")
+
+        # 2. Search for the Album
+        searchQuery = f"artist:{artistName} album:{albumName}"
+        searchUrl = "https://api.spotify.com/v1/search"
+        searchHeaders = {"Authorization": f"Bearer {accessToken}"}
+        searchParams = {"q": searchQuery, "type": "album", "limit": 1}
+
+        searchResponse = requests.get(searchUrl, headers=searchHeaders, params=searchParams)
+        searchResponse.raise_for_status()
+
+        albumsData = searchResponse.json().get("albums", {}).get("items", [])
+        if not albumsData:
+            return "", 0
+
+        targetAlbum = albumsData[0]
+
+        # Extract highest quality image (usually index 0)
+        imagesList = targetAlbum.get("images", [])
+        spotifyCoverUrl = imagesList[0].get("url", "") if imagesList else ""
+
+        # 3. Get exact track durations
+        albumId = targetAlbum.get("id")
+        albumDetailsUrl = f"https://api.spotify.com/v1/albums/{albumId}"
+        albumDetailsResponse = requests.get(albumDetailsUrl, headers=searchHeaders)
+        albumDetailsResponse.raise_for_status()
+
+        tracksList = albumDetailsResponse.json().get("tracks", {}).get("items", [])
+        totalMilliseconds = sum(track.get("duration_ms", 0) for track in tracksList)
+        spotifyDurationMins = totalMilliseconds // 60000
+
+        return spotifyCoverUrl, spotifyDurationMins
+
+    except Exception:
+        # Fails silently and falls back to Discogs data if Spotify fails
+        return "", 0
+
+
+# --- DISCOGS API (FOR SEARCH & TRACKLIST) ---
 def searchDiscogsApi(searchQuery):
     apiToken = getSecretsData("discogs_token")
     if not apiToken:
         return []
 
     apiUrl = f"https://api.discogs.com/database/search?q={searchQuery}&type=release&token={apiToken}"
-    headersInfo = {"User-Agent": "VinylCollectionApp/1.0"}
+    headersInfo = {"User-Agent": "VinylCollectionApp/2.0"}
 
     try:
         apiResponse = requests.get(apiUrl, headers=headersInfo)
@@ -71,7 +132,7 @@ def fetchReleaseDetails(releaseId):
         return 0, ""
 
     apiUrl = f"https://api.discogs.com/releases/{releaseId}?token={apiToken}"
-    headersInfo = {"User-Agent": "VinylCollectionApp/1.0"}
+    headersInfo = {"User-Agent": "VinylCollectionApp/2.0"}
 
     try:
         apiResponse = requests.get(apiUrl, headers=headersInfo)
@@ -103,9 +164,6 @@ def fetchReleaseDetails(releaseId):
 # --- SUPABASE DATABASE CONNECTIONS ---
 @st.cache_resource
 def initSupabase() -> Client:
-    """
-    Initializes and returns the Supabase client connection.
-    """
     url = getSecretsData("supabase_url")
     key = getSecretsData("supabase_key")
 
@@ -118,16 +176,11 @@ def initSupabase() -> Client:
 
 @st.cache_data(ttl=600)
 def fetchData(tableName):
-    """
-    Fetches all records from the specified Supabase table.
-    """
     try:
         supabase = initSupabase()
-        # Fetching all data from the specific table
         response = supabase.table(tableName).select("*").execute()
         df = pd.DataFrame(response.data)
 
-        # Ensure column structure if table is empty
         if df.empty:
             if tableName == "Inventory":
                 df = pd.DataFrame(
@@ -142,17 +195,11 @@ def fetchData(tableName):
 
 
 def addNewVinyl(vinylDataDict):
-    """
-    Inserts a new vinyl dictionary record into the Inventory table.
-    """
     supabase = initSupabase()
     supabase.table("Inventory").insert(vinylDataDict).execute()
 
 
 def logListeningSession(albumName, durationMinutes):
-    """
-    Inserts a new listening session into the ListeningHistory table.
-    """
     supabase = initSupabase()
     currentDate = datetime.now().strftime("%Y-%m-%d %H:%M")
     dataDict = {"Date": currentDate, "AlbumName": albumName, "DurationMins": durationMinutes}
@@ -180,10 +227,7 @@ if not vinylData.empty:
     try:
         historyData = fetchData("ListeningHistory")
         if not historyData.empty:
-            # Calculate total minutes safely
             totalMinutes = pd.to_numeric(historyData["DurationMins"], errors='coerce').sum()
-
-            # Format to display Hours and Minutes accurately
             totalHours = int(totalMinutes // 60)
             remainingMinutes = int(totalMinutes % 60)
 
@@ -322,14 +366,33 @@ with tabAdd:
 
             releaseId = selectedData.get("id", selectedIndex)
 
+            # --- FRANKENSTEIN DATA FETCH (DISCOGS + SPOTIFY) ---
             if f"details_{releaseId}" not in st.session_state:
-                with st.spinner("Fetching album details and tracks..."):
-                    st.session_state[f"details_{releaseId}"] = fetchReleaseDetails(releaseId)
+                with st.spinner("Fetching data from Discogs and Spotify..."):
+                    # Extract Artist and Album for Spotify search
+                    tempTitle = selectedData.get("title", "Unknown - Unknown")
+                    if " - " in tempTitle:
+                        tempArtist, tempAlbum = tempTitle.split(" - ", 1)
+                    else:
+                        tempArtist, tempAlbum = "Unknown", tempTitle
 
-            fetchedDuration, fetchedTracklist = st.session_state[f"details_{releaseId}"]
+                    # 1. Fetch Discogs Tracklist & Duration
+                    discogsDur, fetchedTracklist = fetchReleaseDetails(releaseId)
 
-            if fetchedDuration == 0:
-                st.info("Discogs does not have track durations for this release. You can enter it manually below.")
+                    # 2. Fetch Spotify HD Cover & Exact Duration
+                    spotifyCover, spotifyDur = fetchSpotifyData(tempArtist, tempAlbum)
+
+                    # 3. Merge Best Data
+                    finalDur = spotifyDur if spotifyDur > 0 else discogsDur
+
+                    # Store in session
+                    st.session_state[f"details_{releaseId}"] = {
+                        "tracklist": fetchedTracklist,
+                        "duration": finalDur,
+                        "spotifyCover": spotifyCover
+                    }
+
+            mergedData = st.session_state[f"details_{releaseId}"]
 
             st.write("---")
             st.markdown("### Preview and Edit Data")
@@ -342,14 +405,19 @@ with tabAdd:
                 parsedAlbum = fullTitle
 
             parsedYear = str(selectedData.get("year", "N/A"))
-            parsedCover = selectedData.get("cover_image", "")
             parsedGenre = selectedData.get("genre", ["Unknown Genre"])[0] if selectedData.get(
                 "genre") else "Unknown Genre"
+
+            # Use Spotify Cover if available, else fallback to Discogs thumbnail
+            parsedCover = mergedData["spotifyCover"] if mergedData["spotifyCover"] else selectedData.get("cover_image",
+                                                                                                         "")
 
             colCover, colEdit = st.columns([1, 2])
             with colCover:
                 if parsedCover:
                     st.image(parsedCover, use_container_width=True)
+                    if mergedData["spotifyCover"]:
+                        st.caption("✅ HD Cover loaded from Spotify")
 
             with colEdit:
                 finalArtist = st.text_input("Artist", value=parsedArtist, key=f"apiArtist_{releaseId}")
@@ -360,9 +428,10 @@ with tabAdd:
                 with cYear:
                     finalYear = st.text_input("Year", value=parsedYear, key=f"apiYear_{releaseId}")
                 with cDur:
-                    finalDuration = st.number_input("Duration (Mins)", value=fetchedDuration, key=f"apiDur_{releaseId}")
+                    finalDuration = st.number_input("Duration (Mins)", value=mergedData["duration"],
+                                                    key=f"apiDur_{releaseId}")
 
-                finalTracklist = st.text_area("Tracklist (Separated by |)", value=fetchedTracklist,
+                finalTracklist = st.text_area("Tracklist (Separated by |)", value=mergedData["tracklist"],
                                               key=f"apiTrack_{releaseId}")
                 finalCondition = st.selectbox("Condition", ["New", "Used", "Mint", "Fair"],
                                               key=f"apiCondition_{releaseId}")
@@ -370,7 +439,6 @@ with tabAdd:
             if st.button("Save to Collection", type="primary", key=f"btnSaveApi_{releaseId}"):
                 generatedId = int(time.time())
 
-                # Dictionary structure for Supabase database insertion
                 newVinylDict = {
                     "ID": generatedId,
                     "Artist": finalArtist,
