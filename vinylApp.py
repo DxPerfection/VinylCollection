@@ -13,7 +13,7 @@ try:
     from PIL import Image
     from pyzbar.pyzbar import decode
 except ImportError:
-    pass  # Handled in requirements.txt
+    pass
 
 # --- GLOBAL UI SETTINGS ---
 gridImageWidth = 150
@@ -51,7 +51,7 @@ def getSecretsData(keyName):
     return None
 
 
-# --- SPOTIFY API (FOR HD COVERS & EXACT DURATION) ---
+# --- SPOTIFY API ---
 def fetchSpotifyData(artistName, albumName):
     clientId = getSecretsData("spotify_client_id")
     clientSecret = getSecretsData("spotify_client_secret")
@@ -101,7 +101,7 @@ def fetchSpotifyData(artistName, albumName):
         return "", 0
 
 
-# --- DISCOGS API (UPDATED FOR BARCODE SEARCH) ---
+# --- DISCOGS API ---
 def searchDiscogsApi(searchQuery=None, barcodeQuery=None):
     apiToken = getSecretsData("discogs_token")
     if not apiToken:
@@ -164,7 +164,7 @@ def fetchReleaseDetails(releaseId):
         return 0, "", ""
 
 
-# --- SUPABASE DATABASE CONNECTIONS ---
+# --- SUPABASE DATABASE ---
 @st.cache_resource
 def initSupabase() -> Client:
     url = getSecretsData("supabase_url")
@@ -219,16 +219,10 @@ def logListeningSession(albumName, durationMinutes):
     supabase.table("ListeningHistory").insert(dataDict).execute()
 
 
-# --- HELPER FUNCTION: DUPLICATE CHECK ---
 def isDuplicate(artistName, albumName, existingDataDf):
-    """
-    Checks if the album by the specific artist already exists in the collection.
-    Case-insensitive comparison.
-    """
     if existingDataDf.empty:
         return False
 
-    # Convert inputs and dataframe columns to lower case and strip whitespace
     targetArtist = str(artistName).strip().lower()
     targetAlbum = str(albumName).strip().lower()
 
@@ -251,6 +245,7 @@ with st.sidebar:
 st.title("🎵 Vinyl Collection")
 
 vinylData = fetchData("Inventory")
+historyData = fetchData("ListeningHistory")
 
 # --- TOP PANEL (METRICS) ---
 if not vinylData.empty:
@@ -259,7 +254,6 @@ if not vinylData.empty:
     col2.metric("Favorite Genre", vinylData['Genre'].mode()[0] if not vinylData.empty else "-")
 
     try:
-        historyData = fetchData("ListeningHistory")
         if not historyData.empty:
             totalMinutes = pd.to_numeric(historyData["DurationMins"], errors='coerce').sum()
             totalHours = int(totalMinutes // 60)
@@ -279,8 +273,10 @@ if not vinylData.empty:
 st.divider()
 
 # --- TABS ---
-tabGallery, tabAdd, tabLog, tabManage = st.tabs(
-    ["💿 Collection", "➕ Add New", "🎧 Listening Log", "⚙️ Manage Collection"])
+# ADDED NEW TAB: Dashboard
+tabGallery, tabAdd, tabLog, tabManage, tabDash = st.tabs([
+    "💿 Collection", "➕ Add New", "🎧 Listening Log", "⚙️ Manage Collection", "📊 Dashboard"
+])
 
 # TAB 1: COLLECTION VIEW
 with tabGallery:
@@ -288,22 +284,22 @@ with tabGallery:
     with colFilter:
         with st.expander("🔍 Filter Options", expanded=False):
             c1, c2 = st.columns(2)
-            selectedGenres = c1.multiselect("Select Genre", vinylData["Genre"].unique())
+            selectedGenres = c1.multiselect("Select Genre", vinylData["Genre"].unique() if not vinylData.empty else [])
             searchQuery = c2.text_input("Search Album or Artist")
 
     with colToggle:
         layoutMode = st.radio("View Layout", ["Grid View", "List View"], horizontal=True)
 
     filteredData = vinylData.copy()
-    if selectedGenres:
-        filteredData = filteredData[filteredData["Genre"].isin(selectedGenres)]
-    if searchQuery:
-        filteredData = filteredData[
-            filteredData["AlbumName"].str.contains(searchQuery, case=False) |
-            filteredData["Artist"].str.contains(searchQuery, case=False)
-            ]
-
     if not filteredData.empty:
+        if selectedGenres:
+            filteredData = filteredData[filteredData["Genre"].isin(selectedGenres)]
+        if searchQuery:
+            filteredData = filteredData[
+                filteredData["AlbumName"].str.contains(searchQuery, case=False) |
+                filteredData["Artist"].str.contains(searchQuery, case=False)
+                ]
+
         filteredData = filteredData.sort_values(by="ID", ascending=False)
 
     st.write("---")
@@ -382,11 +378,10 @@ with tabGallery:
 
                 st.write("---")
 
-# TAB 2: ADD NEW VINYL (UPDATED UI & DUPLICATE CHECK)
+# TAB 2: ADD NEW VINYL
 with tabAdd:
     st.header("Add New Vinyl")
 
-    # 1. Clean UI: Radio buttons instead of sub-tabs. Default is Text Search.
     searchMethod = st.radio("Select Search Method:", ["📝 Text Search", "📷 Scan with Barcode", "✍️ Manual Entry"],
                             horizontal=True)
     st.write("---")
@@ -402,22 +397,24 @@ with tabAdd:
                 st.warning("Please enter a search term.")
 
     elif searchMethod == "📷 Scan with Barcode":
-        st.info("💡 Tap 'Browse files' and select 'Take Photo' on your phone to use your native camera. "
-                "Ensure the barcode is sharp and in focus.")
-        # Using file_uploader triggers the native mobile camera menu
+        st.info(
+            "💡 **Best Practice for Mobile:** Take a clear, focused photo of the barcode using your phone's normal camera app FIRST. Then, upload it here.")
+
         barcodeImg = st.file_uploader("Upload or Take a Photo of the Barcode", type=['jpg', 'jpeg', 'png'],
                                       key="barcodeUploader")
+
         if barcodeImg is not None:
             with st.spinner("Analyzing high-resolution image..."):
                 try:
-                    # Open the image using Pillow
                     imgToDecode = Image.open(barcodeImg)
-                    # Convert image to grayscale to significantly improve pyzbar detection accuracy
                     imgToDecode = imgToDecode.convert('L')
+
                     decodedObjects = decode(imgToDecode)
+
                     if decodedObjects:
                         scannedBarcode = decodedObjects[0].data.decode('utf-8')
                         st.success(f"Barcode Detected: **{scannedBarcode}**")
+
                         with st.spinner("Searching Discogs for barcode..."):
                             st.session_state["apiResults"] = searchDiscogsApi(barcodeQuery=scannedBarcode)
                     else:
@@ -442,7 +439,6 @@ with tabAdd:
 
         if st.button("Save to Collection", use_container_width=True, key="btnSaveManual", type="primary"):
             if inputArtist and inputAlbum:
-                # Duplicate Check for Manual Entry
                 if isDuplicate(inputArtist, inputAlbum, vinylData):
                     st.error(
                         f"⚠️ **Wait!** '{inputAlbum}' by '{inputArtist}' is already in your collection. It was not added.")
@@ -465,7 +461,6 @@ with tabAdd:
             else:
                 st.warning("Please enter at least Artist and Album name.")
 
-    # 2. Display API Results (Applies to both Text and Barcode search)
     if searchMethod in ["📝 Text Search", "📷 Scan with Barcode"]:
         if "apiResults" in st.session_state and st.session_state["apiResults"]:
             st.write("---")
@@ -551,7 +546,6 @@ with tabAdd:
                                                   key=f"apiCondition_{releaseId}")
 
                 if st.button("Save to Collection", type="primary", key=f"btnSaveApi_{releaseId}"):
-                    # Duplicate Check for API Entry
                     if isDuplicate(finalArtist, finalAlbum, vinylData):
                         st.error(
                             f"⚠️ **Wait!** '{finalAlbum}' by '{finalArtist}' is already in your collection. It was not added.")
@@ -600,7 +594,7 @@ with tabLog:
     else:
         st.warning("Your collection is currently empty. Please add a vinyl first.")
 
-# TAB 4: MANAGE COLLECTION (EDIT/DELETE)
+# TAB 4: MANAGE COLLECTION
 with tabManage:
     st.header("Manage Your Collection")
 
@@ -681,3 +675,41 @@ with tabManage:
                         st.error(f"{updAlbum} has been deleted! Please refresh.")
     else:
         st.info("Your collection is currently empty.")
+
+# TAB 5: DASHBOARD & STATISTICS
+with tabDash:
+    st.header("📊 Collection Analytics")
+
+    if not vinylData.empty:
+        colChart1, colChart2 = st.columns(2)
+
+        with colChart1:
+            st.subheader("Distribution by Genre")
+            # Creating a simple bar chart for genres
+            genreCounts = vinylData['Genre'].value_counts().reset_index()
+            genreCounts.columns = ['Genre', 'Count']
+            st.bar_chart(genreCounts, x='Genre', y='Count', use_container_width=True)
+
+        with colChart2:
+            st.subheader("Collection Condition")
+            # Bar chart for vinyl conditions
+            conditionCounts = vinylData['Condition'].value_counts().reset_index()
+            conditionCounts.columns = ['Condition', 'Count']
+            st.bar_chart(conditionCounts, x='Condition', y='Count', use_container_width=True)
+
+        st.write("---")
+
+        st.subheader("🎧 Most Listened Albums")
+        if not historyData.empty:
+            # Grouping listening history by album and summing durations
+            topListened = historyData.groupby("AlbumName")["DurationMins"].sum().reset_index()
+            topListened = topListened.sort_values(by="DurationMins", ascending=False).head(5)
+
+            # Formatting the data for better display
+            topListened.columns = ['Album', 'Total Minutes Listened']
+            st.dataframe(topListened, use_container_width=True, hide_index=True)
+        else:
+            st.info("Log some listening sessions to see your top albums here!")
+
+    else:
+        st.warning("Not enough data to generate analytics. Start adding vinyls to your collection!")
