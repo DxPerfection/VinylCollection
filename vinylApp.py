@@ -402,23 +402,26 @@ with tabAdd:
                 st.warning("Please enter a search term.")
 
     elif searchMethod == "📷 Scan with Barcode":
-        st.info("Take a clear picture of the barcode on the back of your vinyl. Ensure good lighting.")
-        barcodeImg = st.camera_input("Scan Barcode", key="barcodeCam")
-
+        st.info("💡 Tap 'Browse files' and select 'Take Photo' on your phone to use your native camera. "
+                "Ensure the barcode is sharp and in focus.")
+        # Using file_uploader triggers the native mobile camera menu
+        barcodeImg = st.file_uploader("Upload or Take a Photo of the Barcode", type=['jpg', 'jpeg', 'png'],
+                                      key="barcodeUploader")
         if barcodeImg is not None:
-            with st.spinner("Analyzing image..."):
+            with st.spinner("Analyzing high-resolution image..."):
                 try:
+                    # Open the image using Pillow
                     imgToDecode = Image.open(barcodeImg)
+                    # Convert image to grayscale to significantly improve pyzbar detection accuracy
+                    imgToDecode = imgToDecode.convert('L')
                     decodedObjects = decode(imgToDecode)
-
                     if decodedObjects:
                         scannedBarcode = decodedObjects[0].data.decode('utf-8')
                         st.success(f"Barcode Detected: **{scannedBarcode}**")
-
                         with st.spinner("Searching Discogs for barcode..."):
                             st.session_state["apiResults"] = searchDiscogsApi(barcodeQuery=scannedBarcode)
                     else:
-                        st.error("No barcode detected. Please try again with a clearer angle or better lighting.")
+                        st.error("No barcode detected. Please ensure the lines are perfectly in focus and try again.")
                 except Exception as e:
                     st.error(f"Error processing image: {e}")
 
