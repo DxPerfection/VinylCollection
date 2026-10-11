@@ -1,6 +1,7 @@
-streamlit
+streamlit>=1.40
 pandas
 requests
 supabase
 pyzbar
 Pillow
+altair
