@@ -263,12 +263,26 @@ def initSupabase() -> Client:
         st.stop()
 
 
+orderColumns = {"Inventory": "ID", "ListeningHistory": "id"}
+
+
+def fetchAllRows(supabase, tableName):
+    # Supabase hands back at most 1000 rows per request, so read page after page until one comes back empty.
+    # The order keeps the pages from overlapping.
+    rows = []
+    while True:
+        page = supabase.table(tableName).select("*").order(orderColumns[tableName]) \
+            .range(len(rows), len(rows) + 999).execute().data
+        if not page:
+            return rows
+        rows.extend(page)
+
+
 @st.cache_data(ttl=600)
 def fetchData(tableName):
     try:
         supabase = initSupabase()
-        response = supabase.table(tableName).select("*").execute()
-        df = pd.DataFrame(response.data)
+        df = pd.DataFrame(fetchAllRows(supabase, tableName))
 
         if df.empty:
             if tableName == "Inventory":
