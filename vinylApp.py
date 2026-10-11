@@ -55,9 +55,10 @@ st.markdown("""
     @media (prefers-reduced-motion: reduce) {.vc-disc {animation: none;}}
 
     /* Stat cards */
-    .vc-stat {background: var(--vc-surface); border: 1px solid var(--vc-border); border-radius: 16px; padding: 16px 20px;}
+    .vc-stat {background: var(--vc-surface); border: 1px solid var(--vc-border); border-radius: 16px; padding: 16px 20px; min-height: 118px;}
     .vc-stat-label {color: var(--vc-muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em;}
     .vc-stat-value {color: var(--vc-text); font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; line-height: 1.25;}
+    .vc-stat-value-sm {font-size: 1.45rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
     .vc-stat-sub {color: var(--vc-accent); font-size: 0.82rem; min-height: 1.1em;}
 
     /* Tabs */
@@ -394,13 +395,20 @@ def pillsHtml(row):
 
 
 def statCard(label, value, sub=""):
+    # Long values such as a month or artist name get a smaller font so they stay on one line
+    sizeClass = " vc-stat-value-sm" if len(str(value)) > 7 else ""
     return (f'<div class="vc-stat"><div class="vc-stat-label">{esc(label)}</div>'
-            f'<div class="vc-stat-value">{esc(value)}</div><div class="vc-stat-sub">{esc(sub)}</div></div>')
+            f'<div class="vc-stat-value{sizeClass}" title="{esc(value)}">{esc(value)}</div>'
+            f'<div class="vc-stat-sub">{esc(sub)}</div></div>')
 
 
 def formatMinutes(totalMinutes):
     hours, minutes = int(totalMinutes // 60), int(totalMinutes % 60)
     return f"{hours}h {minutes}m" if hours > 0 else f"{minutes} mins"
+
+
+def formatDays(dayCount):
+    return f"{dayCount} day" if dayCount == 1 else f"{dayCount} days"
 
 
 def buildPlayTable(historyDf, inventoryDf):
@@ -410,13 +418,49 @@ def buildPlayTable(historyDf, inventoryDf):
 
     playsDf = linkHistoryToVinyls(historyDf, inventoryDf)
     playsDf["DurationMins"] = pd.to_numeric(playsDf["DurationMins"], errors="coerce").fillna(0)
-    playsDf["When"] = pd.to_datetime(playsDf["Date"], errors="coerce")
+    # Dates are written as "YYYY-MM-DD HH:MM" text, but accept full ISO timestamps too
+    playsDf["When"] = pd.to_datetime(playsDf["Date"], errors="coerce", format="mixed", utc=True).dt.tz_convert(None)
 
     # Plays follow the record's current name; plays without a record keep the name they were logged with
     idToLabel = {int(r.ID): f"{r.Artist} - {r.AlbumName}" for r in inventoryDf.itertuples()}
+    idToArtist = {int(r.ID): r.Artist for r in inventoryDf.itertuples()}
     playsDf["Album"] = [idToLabel.get(int(vinylId), albumName) if pd.notna(vinylId) else albumName
                         for vinylId, albumName in zip(playsDf["VinylID"], playsDf["AlbumName"])]
+    # Plays that could not be matched to a record have no known artist
+    playsDf["Artist"] = [idToArtist.get(int(vinylId)) if pd.notna(vinylId) else None for vinylId in playsDf["VinylID"]]
     return playsDf
+
+
+def listeningStreaks(playsDf, today=None):
+    # Returns (current streak, longest streak) in days. The current streak survives until the end of the day
+    # after the last play, so it does not read 0 first thing in the morning.
+    days = sorted(set(playsDf["When"].dropna().dt.normalize()))
+    if not days:
+        return 0, 0
+
+    today = today if today is not None else pd.Timestamp.now().normalize()
+    longest = run = 1
+    for previousDay, day in zip(days, days[1:]):
+        run = run + 1 if (day - previousDay).days == 1 else 1
+        longest = max(longest, run)
+
+    current = run if (today - days[-1]).days <= 1 else 0
+    return current, longest
+
+
+def dustiestRecords(inventoryDf, playsDf, today=None):
+    # One row per record: when it was last played and how many days ago. Never-played records come first,
+    # then the ones left longest on the shelf.
+    today = today if today is not None else pd.Timestamp.now().normalize()
+    lastPlayedById = {}
+    if not playsDf.empty:
+        lastPlayed = playsDf.dropna(subset=["VinylID", "When"]).groupby("VinylID")["When"].max()
+        lastPlayedById = dict(zip(lastPlayed.index.astype(int), lastPlayed))
+
+    dustyDf = inventoryDf[["ID", "Artist", "AlbumName"]].copy()
+    dustyDf["LastPlayed"] = pd.to_datetime(dustyDf["ID"].astype("int64").map(lastPlayedById))
+    dustyDf["DaysAgo"] = (today - dustyDf["LastPlayed"].dt.normalize()).dt.days
+    return dustyDf.sort_values(by=["DaysAgo", "ID"], ascending=[False, True], na_position="first")
 
 
 # --- SIDEBAR & REFRESH ---
@@ -466,7 +510,7 @@ tabGallery, tabAdd, tabLog, tabManage, tabDash = st.tabs([
 
 # TAB 1: COLLECTION VIEW
 with tabGallery:
-    sortOptions = ["Recently added", "Artist A-Z", "Album A-Z", "Year (newest)", "Year (oldest)", "Longest first"]
+    sortOptions = ["Recently added", "Recently listened", "Artist A-Z", "Album A-Z", "Year (newest)", "Year (oldest)", "Longest first"]
     colSearch, colGenre, colSort, colToggle = st.columns([3, 2, 2, 2])
     searchQuery = colSearch.text_input("Search", placeholder="Search album or artist", label_visibility="collapsed")
     selectedGenres = colGenre.multiselect("Genre", vinylData["Genre"].dropna().unique() if not vinylData.empty else [],
@@ -487,6 +531,7 @@ with tabGallery:
 
         sortKeys = {
             "Recently added": ("ID", False),
+            "Recently listened": ("LastPlayed", False),
             "Artist A-Z": ("Artist", True),
             "Album A-Z": ("AlbumName", True),
             "Year (newest)": ("YearNum", False),
@@ -494,7 +539,10 @@ with tabGallery:
             "Longest first": ("DurationNum", False),
         }
         sortColumn, sortAscending = sortKeys[sortChoice]
+        # Records that have never been played sort last under "Recently listened"
+        lastPlayedById = dustiestRecords(vinylData, playsData).set_index("ID")["LastPlayed"]
         filteredData = filteredData.assign(
+            LastPlayed=filteredData["ID"].map(lastPlayedById),
             YearNum=pd.to_numeric(filteredData["Year"], errors="coerce"),
             DurationNum=pd.to_numeric(filteredData["DurationMins"], errors="coerce"),
         ).sort_values(by=sortColumn, ascending=sortAscending, key=lambda col: col.str.lower() if pd.api.types.is_string_dtype(col) else col)
@@ -898,6 +946,91 @@ with tabDash:
                         y=alt.Y("Album:N", sort="-x", title=None, axis=alt.Axis(labelLimit=220)),
                         tooltip=["Album", "Minutes", "Plays"]),
                     use_container_width=True)
+
+            currentStreak, longestStreak = listeningStreaks(playsData)
+            dustyRecords = dustiestRecords(vinylData, playsData)
+            neverPlayed = int(dustyRecords["LastPlayed"].isna().sum())
+            activeDays = playsData["When"].dropna().dt.normalize().nunique()
+
+            insightCols = st.columns(4)
+            insightCols[0].markdown(statCard("Current streak", formatDays(currentStreak), "in a row"),
+                                    unsafe_allow_html=True)
+            insightCols[1].markdown(statCard("Longest streak", formatDays(longestStreak), "in a row"),
+                                    unsafe_allow_html=True)
+            insightCols[2].markdown(statCard("Days listened", activeDays, "with at least one play"),
+                                    unsafe_allow_html=True)
+            insightCols[3].markdown(statCard("Never played", neverPlayed, f"of {len(vinylData)} records"),
+                                    unsafe_allow_html=True)
+            st.write("")
+
+            colChart5, colChart6 = st.columns(2)
+
+            with colChart5:
+                st.caption("Top artists by minutes")
+                topArtists = playsData.dropna(subset=["Artist"]).groupby("Artist").agg(
+                    Minutes=("DurationMins", "sum"), Plays=("Artist", "size")).reset_index()
+                topArtists = topArtists.sort_values(by="Minutes", ascending=False).head(8)
+                if topArtists.empty:
+                    st.info("Plays need to be linked to records to rank artists.")
+                else:
+                    st.altair_chart(
+                        barChart(topArtists, "Artist", "Minutes", "Minutes listened").encode(
+                            tooltip=["Artist", "Minutes", "Plays"]),
+                        use_container_width=True)
+
+            with colChart6:
+                st.caption("When you listen")
+                weekdayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+                weekdayCounts = (playsData["When"].dropna().dt.dayofweek.map(dict(enumerate(weekdayNames)))
+                                 .value_counts().reindex(weekdayNames, fill_value=0)
+                                 .rename_axis("Day").reset_index(name="Plays"))
+                st.altair_chart(
+                    alt.Chart(weekdayCounts).mark_bar(color=accentColor, cornerRadiusEnd=4).encode(
+                        alt.X("Day:N", sort=weekdayNames, title=None, axis=alt.Axis(labelAngle=0)),
+                        alt.Y("Plays:Q", axis=alt.Axis(tickMinStep=1, format="d")),
+                        tooltip=["Day", "Plays"],
+                    ).properties(height=280),
+                    use_container_width=True)
+
+            st.subheader("Gathering dust")
+            st.caption("Records you have never played, then the ones you have not played for the longest.")
+            dustyView = dustyRecords.head(10).assign(
+                **{"Last played": lambda df: df["LastPlayed"].dt.strftime("%d %b %Y").fillna("Never"),
+                   "Days ago": lambda df: df["DaysAgo"].map(lambda days: "-" if pd.isna(days) else str(int(days)))})
+            st.dataframe(dustyView[["Artist", "AlbumName", "Last played", "Days ago"]]
+                         .rename(columns={"AlbumName": "Album"}), hide_index=True, use_container_width=True)
+
+            st.subheader("Year in review")
+            reviewYears = sorted(playsData["When"].dropna().dt.year.unique(), reverse=True)
+            reviewYear = st.selectbox("Year", reviewYears, label_visibility="collapsed")
+            yearPlays = playsData[playsData["When"].dt.year == reviewYear]
+            monthMinutes = yearPlays.groupby(yearPlays["When"].dt.month)["DurationMins"].sum()
+            topYearAlbum = yearPlays.groupby("Album")["DurationMins"].sum().idxmax()
+            yearArtists = yearPlays.dropna(subset=["Artist"]).groupby("Artist")["DurationMins"].sum()
+
+            yearCols = st.columns(4)
+            yearCols[0].markdown(statCard("Listening time", formatMinutes(yearPlays["DurationMins"].sum()),
+                                          f"{len(yearPlays)} plays"), unsafe_allow_html=True)
+            yearCols[1].markdown(statCard("Albums played", yearPlays["Album"].nunique(),
+                                          "different records"), unsafe_allow_html=True)
+            yearCols[2].markdown(statCard("Busiest month", pd.Timestamp(2000, int(monthMinutes.idxmax()), 1)
+                                          .strftime("%B"), formatMinutes(monthMinutes.max())),
+                                 unsafe_allow_html=True)
+            yearCols[3].markdown(statCard("Top artist", yearArtists.idxmax() if not yearArtists.empty else "-",
+                                          formatMinutes(yearArtists.max()) if not yearArtists.empty else ""),
+                                 unsafe_allow_html=True)
+            st.markdown(f'<div class="vc-count">Most played album of {reviewYear}: '
+                        f'<b style="color: var(--vc-accent)">{esc(topYearAlbum)}</b></div>', unsafe_allow_html=True)
+
+            monthlyHours = (monthMinutes.reindex(range(1, 13), fill_value=0) / 60).rename("Hours").reset_index()
+            monthlyHours["Month"] = monthlyHours["When"].map(lambda m: pd.Timestamp(2000, m, 1).strftime("%b"))
+            st.altair_chart(
+                alt.Chart(monthlyHours).mark_bar(color=accentColor, cornerRadiusEnd=4).encode(
+                    alt.X("Month:N", sort=list(monthlyHours["Month"]), title=None, axis=alt.Axis(labelAngle=0)),
+                    alt.Y("Hours:Q"),
+                    tooltip=["Month", alt.Tooltip("Hours", format=".1f")],
+                ).properties(height=220),
+                use_container_width=True)
         else:
             st.info("Log some listening sessions to see your listening charts here!")
 
