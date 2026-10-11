@@ -7,6 +7,9 @@ import json
 import base64
 from supabase import create_client, Client
 import re
+import html
+import urllib.parse
+import altair as alt
 
 # --- NEW IMPORTS FOR BARCODE SCANNER ---
 try:
@@ -16,21 +19,92 @@ except ImportError:
     pass
 
 # --- GLOBAL UI SETTINGS ---
-gridImageWidth = 150
-listImageWidth = 250
+gridColumns = 4
+accentColor = "#F5B83D"
+mutedColor = "#9A9AA8"
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="Vinyl Collection", page_icon="🎵", layout="wide")
+st.set_page_config(page_title="Vinyl Collection", page_icon="💿", layout="wide")
 
 st.markdown("""
 <style>
-    .stApp {background-color: #0E1117;}
-    div.css-1r6slb0 {background-color: #262730; border: 1px solid #41444C; border-radius: 10px; padding: 15px;}
-    div[data-testid="stMetricValue"] {color: #1DB954; font-size: 28px;}
-    .stButton>button {width: 100%; border-radius: 20px;}
-    .tracklist-text {font-size: 14px; color: #A0A0A0; margin-bottom: 2px;}
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:wght@600;700&display=swap');
+
+    :root {
+        --vc-bg: #0B0B0F; --vc-surface: #14141A; --vc-surface-2: #1B1B23; --vc-border: #2A2A35;
+        --vc-text: #ECECF1; --vc-muted: #9A9AA8; --vc-accent: #F5B83D; --vc-teal: #3DD6C3;
+    }
+    html, body, .stApp, [data-testid="stAppViewContainer"] {font-family: 'Inter', sans-serif;}
+    .stApp {background: radial-gradient(1200px 500px at 10% -10%, #1f1a10 0%, var(--vc-bg) 60%);}
+    .block-container {padding-top: 2rem; max-width: 1280px;}
+    header[data-testid="stHeader"] {background: transparent;}
+
+    /* Hero */
+    .vc-hero {display: flex; align-items: center; gap: 22px; margin-bottom: 1.4rem;}
+    .vc-hero h1 {font-family: 'Playfair Display', serif; font-size: 2.6rem; margin: 0; padding: 0; color: var(--vc-text);}
+    .vc-hero p {margin: 4px 0 0 0; color: var(--vc-muted);}
+    .vc-disc {
+        width: 74px; height: 74px; flex: none; border-radius: 50%;
+        background:
+            radial-gradient(circle, var(--vc-bg) 0 5%, var(--vc-accent) 6% 27%, #111 28% 30%, transparent 31%),
+            repeating-radial-gradient(circle, #1c1c22 0 2px, #101015 2px 4px);
+        box-shadow: 0 6px 24px rgba(245, 184, 61, 0.25), inset 0 0 0 2px #2b2b33;
+        animation: vc-spin 14s linear infinite;
+    }
+    @keyframes vc-spin {to {transform: rotate(360deg);}}
+    @media (prefers-reduced-motion: reduce) {.vc-disc {animation: none;}}
+
+    /* Stat cards */
+    .vc-stat {background: var(--vc-surface); border: 1px solid var(--vc-border); border-radius: 16px; padding: 16px 20px;}
+    .vc-stat-label {color: var(--vc-muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em;}
+    .vc-stat-value {color: var(--vc-text); font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; line-height: 1.25;}
+    .vc-stat-sub {color: var(--vc-accent); font-size: 0.82rem; min-height: 1.1em;}
+
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {gap: 6px; border-bottom: 1px solid var(--vc-border);}
+    .stTabs [data-baseweb="tab"] {border-radius: 10px 10px 0 0; padding: 10px 16px; color: var(--vc-muted);}
+    .stTabs [aria-selected="true"] {color: var(--vc-accent);}
+
+    /* Cards */
+    [class*="st-key-card_"] {
+        background: var(--vc-surface); border: 1px solid var(--vc-border); border-radius: 16px; padding: 12px;
+        transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    [class*="st-key-card_"]:hover {
+        transform: translateY(-3px); border-color: var(--vc-accent); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+    }
+    .vc-cover {aspect-ratio: 1 / 1; width: 100%; border-radius: 10px; overflow: hidden; background: var(--vc-surface-2);
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);}
+    .vc-cover img {width: 100%; height: 100%; object-fit: cover; display: block;}
+    .vc-title {font-weight: 600; font-size: 1.02rem; margin: 12px 0 2px 0; color: var(--vc-text);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+    .vc-title-lg {font-family: 'Playfair Display', serif; font-size: 1.6rem; font-weight: 700; margin: 0; color: var(--vc-text);}
+    .vc-artist {color: var(--vc-muted); font-size: 0.9rem; margin-bottom: 8px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+    .vc-pills {display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;}
+    .vc-pill {background: var(--vc-surface-2); border: 1px solid var(--vc-border); color: var(--vc-muted);
+        border-radius: 999px; padding: 2px 10px; font-size: 0.74rem;}
+    .vc-pill-accent {color: var(--vc-accent); border-color: rgba(245, 184, 61, 0.4);}
+    .vc-count {color: var(--vc-muted); font-size: 0.85rem; margin: 4px 0 14px 0;}
+    .vc-empty {text-align: center; padding: 56px 20px; border: 1px dashed var(--vc-border); border-radius: 16px;
+        color: var(--vc-muted);}
+    .tracklist-text {font-size: 14px; color: var(--vc-muted); margin-bottom: 2px;}
+
+    /* Controls */
+    div[data-testid="stElementContainer"]:has(> div[data-testid="stButton"]),
+    div[data-testid="stButton"], div[data-testid="stButton"] > button {width: 100% !important;}
+    div[data-testid="stButton"] > button {border-radius: 999px; font-weight: 500;}
+    h2, h3 {font-family: 'Playfair Display', serif;}
+    @media (max-width: 640px) {.vc-hero h1 {font-size: 1.9rem;} .vc-disc {width: 56px; height: 56px;}}
 </style>
 """, unsafe_allow_html=True)
+
+# Inline vinyl record shown when a release has no cover image
+placeholderCover = "data:image/svg+xml;utf8," + urllib.parse.quote(
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='#1B1B23'/>"
+    "<circle cx='50' cy='50' r='44' fill='#101015' stroke='#2A2A35' stroke-width='1'/>"
+    "<circle cx='50' cy='50' r='34' fill='none' stroke='#1c1c22' stroke-width='5'/>"
+    "<circle cx='50' cy='50' r='15' fill='#F5B83D'/><circle cx='50' cy='50' r='2.5' fill='#0B0B0F'/></svg>")
 
 
 # --- CONFIGURATION & TOKENS ---
@@ -221,14 +295,14 @@ def logListeningSession(albumName, durationMinutes, vinylId=None):
 
     try:
         supabase.table("ListeningHistory").insert(dataDict).execute()
+        return True
     except Exception as e:
         # The VinylID column only exists after migrations/001_listening_history_vinyl_id.sql has been run.
         if "VinylID" not in str(e):
             raise
         dataDict.pop("VinylID")
         supabase.table("ListeningHistory").insert(dataDict).execute()
-        st.warning("Session logged, but not linked to the record yet. "
-                   "Run migrations/001_listening_history_vinyl_id.sql in the Supabase SQL editor.")
+        return False
 
 
 def linkPastPlays(vinylId, albumName):
@@ -278,6 +352,73 @@ def isDuplicate(artistName, albumName, existingDataDf):
     return not match.empty
 
 
+# --- WRITE FEEDBACK ---
+def saveAndRefresh(message, icon="✅"):
+    # Drop the cached reads so the page shows the change, and show the message after the rerun.
+    st.cache_data.clear()
+    st.session_state["flashMessage"] = (message, icon)
+    st.rerun()
+
+
+def logPlay(albumName, durationMinutes, vinylId):
+    if logListeningSession(albumName, durationMinutes, vinylId):
+        saveAndRefresh(f"Logged {albumName}. Enjoy the music!", "🎧")
+    else:
+        saveAndRefresh(f"Logged {albumName}, but it is not linked to the record yet. "
+                       "Run migrations/001_listening_history_vinyl_id.sql in Supabase.", "⚠️")
+
+
+# --- DISPLAY HELPERS ---
+def esc(value):
+    return html.escape("" if value is None or (not isinstance(value, str) and pd.isna(value)) else str(value))
+
+
+def coverHtml(coverUrl):
+    url = str(coverUrl) if coverUrl is not None and pd.notna(coverUrl) else ""
+    src = url if url.startswith("http") else placeholderCover
+    return f'<div class="vc-cover"><img src="{html.escape(src, quote=True)}" loading="lazy" alt=""></div>'
+
+
+def pillsHtml(row):
+    pills = []
+    if esc(row.get("Year")):
+        pills.append(f'<span class="vc-pill">{esc(row.get("Year"))}</span>')
+    if esc(row.get("Genre")):
+        pills.append(f'<span class="vc-pill vc-pill-accent">{esc(row.get("Genre"))}</span>')
+    if esc(row.get("SubGenre")):
+        pills.append(f'<span class="vc-pill">{esc(row.get("SubGenre"))}</span>')
+    duration = pd.to_numeric(row.get("DurationMins"), errors="coerce")
+    if pd.notna(duration) and duration > 0:
+        pills.append(f'<span class="vc-pill">{int(duration)} min</span>')
+    return f'<div class="vc-pills">{"".join(pills)}</div>'
+
+
+def statCard(label, value, sub=""):
+    return (f'<div class="vc-stat"><div class="vc-stat-label">{esc(label)}</div>'
+            f'<div class="vc-stat-value">{esc(value)}</div><div class="vc-stat-sub">{esc(sub)}</div></div>')
+
+
+def formatMinutes(totalMinutes):
+    hours, minutes = int(totalMinutes // 60), int(totalMinutes % 60)
+    return f"{hours}h {minutes}m" if hours > 0 else f"{minutes} mins"
+
+
+def buildPlayTable(historyDf, inventoryDf):
+    # One row per play with its record's current "Artist - Album" label, minutes and timestamp.
+    if historyDf.empty:
+        return historyDf
+
+    playsDf = linkHistoryToVinyls(historyDf, inventoryDf)
+    playsDf["DurationMins"] = pd.to_numeric(playsDf["DurationMins"], errors="coerce").fillna(0)
+    playsDf["When"] = pd.to_datetime(playsDf["Date"], errors="coerce")
+
+    # Plays follow the record's current name; plays without a record keep the name they were logged with
+    idToLabel = {int(r.ID): f"{r.Artist} - {r.AlbumName}" for r in inventoryDf.itertuples()}
+    playsDf["Album"] = [idToLabel.get(int(vinylId), albumName) if pd.notna(vinylId) else albumName
+                        for vinylId, albumName in zip(playsDf["VinylID"], playsDf["AlbumName"])]
+    return playsDf
+
+
 # --- SIDEBAR & REFRESH ---
 with st.sidebar:
     st.header("Settings")
@@ -286,53 +427,53 @@ with st.sidebar:
         st.rerun()
 
 # --- USER INTERFACE (UI) ---
-st.title("🎵 Vinyl Collection")
+if "flashMessage" in st.session_state:
+    flashText, flashIcon = st.session_state.pop("flashMessage")
+    st.toast(flashText, icon=flashIcon)
+
+st.markdown(
+    '<div class="vc-hero"><div class="vc-disc"></div><div><h1>Vinyl Collection</h1>'
+    '<p>Your records and everything you have spun.</p></div></div>',
+    unsafe_allow_html=True)
 
 vinylData = fetchData("Inventory")
 historyData = fetchData("ListeningHistory")
+playsData = buildPlayTable(historyData, vinylData)
 
 # --- TOP PANEL (METRICS) ---
 if not vinylData.empty:
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Vinyls", len(vinylData))
-    col2.metric("Favorite Genre", vinylData['Genre'].mode()[0] if not vinylData.empty else "-")
+    totalMinutes = playsData["DurationMins"].sum() if not playsData.empty else 0
+    totalPlays = len(playsData)
+    albumsPlayed = playsData["Album"].nunique() if not playsData.empty else 0
+    topGenre = vinylData["Genre"].mode()[0] if vinylData["Genre"].notna().any() else "-"
+    topGenreCount = int((vinylData["Genre"] == topGenre).sum())
 
-    try:
-        if not historyData.empty:
-            totalMinutes = pd.to_numeric(historyData["DurationMins"], errors='coerce').sum()
-            totalHours = int(totalMinutes // 60)
-            remainingMinutes = int(totalMinutes % 60)
+    statCols = st.columns(4)
+    statCols[0].markdown(statCard("Records", len(vinylData), f"{vinylData['Artist'].nunique()} artists"),
+                         unsafe_allow_html=True)
+    statCols[1].markdown(statCard("Listening time", formatMinutes(totalMinutes), f"{totalPlays} plays"),
+                         unsafe_allow_html=True)
+    statCols[2].markdown(statCard("Albums played", albumsPlayed, f"of {len(vinylData)} in the collection"),
+                         unsafe_allow_html=True)
+    statCols[3].markdown(statCard("Favorite genre", topGenre, f"{topGenreCount} records"), unsafe_allow_html=True)
 
-            if totalHours > 0:
-                displayTime = f"{totalHours}h {remainingMinutes}m"
-            else:
-                displayTime = f"{remainingMinutes} Mins"
-
-            col3.metric("Total Listening Time", displayTime)
-        else:
-            col3.metric("Total Listening Time", "0 Mins")
-    except:
-        col3.metric("Total Listening Time", "0 Mins")
-
-st.divider()
+st.write("")
 
 # --- TABS ---
-# ADDED NEW TAB: Dashboard
 tabGallery, tabAdd, tabLog, tabManage, tabDash = st.tabs([
-    "💿 Collection", "➕ Add New", "🎧 Listening Log", "⚙️ Manage Collection", "📊 Dashboard"
+    "💿 Collection", "➕ Add New", "🎧 Listening Log", "⚙️ Manage", "📊 Dashboard"
 ])
 
 # TAB 1: COLLECTION VIEW
 with tabGallery:
-    colFilter, colToggle = st.columns([3, 1])
-    with colFilter:
-        with st.expander("🔍 Filter Options", expanded=False):
-            c1, c2 = st.columns(2)
-            selectedGenres = c1.multiselect("Select Genre", vinylData["Genre"].unique() if not vinylData.empty else [])
-            searchQuery = c2.text_input("Search Album or Artist")
-
-    with colToggle:
-        layoutMode = st.radio("View Layout", ["Grid View", "List View"], horizontal=True)
+    sortOptions = ["Recently added", "Artist A-Z", "Album A-Z", "Year (newest)", "Year (oldest)", "Longest first"]
+    colSearch, colGenre, colSort, colToggle = st.columns([3, 2, 2, 2])
+    searchQuery = colSearch.text_input("Search", placeholder="Search album or artist", label_visibility="collapsed")
+    selectedGenres = colGenre.multiselect("Genre", vinylData["Genre"].dropna().unique() if not vinylData.empty else [],
+                                          placeholder="All genres", label_visibility="collapsed")
+    sortChoice = colSort.selectbox("Sort", sortOptions, label_visibility="collapsed")
+    layoutMode = colToggle.segmented_control("Layout", ["Grid", "List"], default="Grid",
+                                             label_visibility="collapsed") or "Grid"
 
     filteredData = vinylData.copy()
     if not filteredData.empty:
@@ -340,87 +481,68 @@ with tabGallery:
             filteredData = filteredData[filteredData["Genre"].isin(selectedGenres)]
         if searchQuery:
             filteredData = filteredData[
-                filteredData["AlbumName"].str.contains(searchQuery, case=False) |
-                filteredData["Artist"].str.contains(searchQuery, case=False)
+                filteredData["AlbumName"].astype(str).str.contains(searchQuery, case=False, regex=False) |
+                filteredData["Artist"].astype(str).str.contains(searchQuery, case=False, regex=False)
                 ]
 
-        filteredData = filteredData.sort_values(by="ID", ascending=False)
+        sortKeys = {
+            "Recently added": ("ID", False),
+            "Artist A-Z": ("Artist", True),
+            "Album A-Z": ("AlbumName", True),
+            "Year (newest)": ("YearNum", False),
+            "Year (oldest)": ("YearNum", True),
+            "Longest first": ("DurationNum", False),
+        }
+        sortColumn, sortAscending = sortKeys[sortChoice]
+        filteredData = filteredData.assign(
+            YearNum=pd.to_numeric(filteredData["Year"], errors="coerce"),
+            DurationNum=pd.to_numeric(filteredData["DurationMins"], errors="coerce"),
+        ).sort_values(by=sortColumn, ascending=sortAscending, key=lambda col: col.str.lower() if pd.api.types.is_string_dtype(col) else col)
 
-    st.write("---")
+    if vinylData.empty:
+        st.markdown('<div class="vc-empty">Your shelf is empty.<br>Head to <b>Add New</b> to add your first record.</div>',
+                    unsafe_allow_html=True)
+    elif filteredData.empty:
+        st.markdown('<div class="vc-empty">No records match your search.</div>', unsafe_allow_html=True)
+    else:
+        st.markdown(f'<div class="vc-count">Showing {len(filteredData)} of {len(vinylData)} records</div>',
+                    unsafe_allow_html=True)
+        records = [row for _, row in filteredData.iterrows()]
+        displayDuration = lambda row: row.get("DurationMins") if pd.notna(row.get("DurationMins")) and row.get("DurationMins") else 45
 
-    if not filteredData.empty:
-        if layoutMode == "Grid View":
-            colsPerRow = 3
-            gridRows = [st.columns(colsPerRow) for _ in range((len(filteredData) // colsPerRow) + 1)]
+        if layoutMode == "Grid":
+            for rowStart in range(0, len(records), gridColumns):
+                gridCols = st.columns(gridColumns)
+                for gridCol, row in zip(gridCols, records[rowStart:rowStart + gridColumns]):
+                    with gridCol.container(key=f"card_grid_{row['ID']}"):
+                        st.markdown(
+                            coverHtml(row.get("CoverURL")) +
+                            f'<div class="vc-title" title="{esc(row["AlbumName"])}">{esc(row["AlbumName"])}</div>'
+                            f'<div class="vc-artist">{esc(row["Artist"])}</div>' + pillsHtml(row),
+                            unsafe_allow_html=True)
+                        if st.button("I listened to this", key=f"btnGrid_{row['ID']}"):
+                            logPlay(row["AlbumName"], displayDuration(row), row["ID"])
+        else:
+            for row in records:
+                with st.container(key=f"card_list_{row['ID']}"):
+                    colImg, colDetails = st.columns([1, 4])
+                    with colImg:
+                        st.markdown(coverHtml(row.get("CoverURL")), unsafe_allow_html=True)
+                    with colDetails:
+                        st.markdown(
+                            f'<div class="vc-title-lg">{esc(row["AlbumName"])}</div>'
+                            f'<div class="vc-artist">{esc(row["Artist"])}</div>' + pillsHtml(row),
+                            unsafe_allow_html=True)
 
-            for index, (idx, row) in enumerate(filteredData.iterrows()):
-                rowIndex = index // colsPerRow
-                colIndex = index % colsPerRow
+                        tracklistData = row.get("Tracklist", "")
+                        if tracklistData and pd.notna(tracklistData):
+                            with st.expander("Tracklist"):
+                                for trackNum, trackName in enumerate(str(tracklistData).split(" | "), 1):
+                                    st.markdown(f"<div class='tracklist-text'>{trackNum}. {esc(trackName)}</div>",
+                                                unsafe_allow_html=True)
 
-                with gridRows[rowIndex][colIndex]:
-                    coverUrl = row.get("CoverURL", "")
-                    if coverUrl and str(coverUrl).startswith("http"):
-                        st.image(coverUrl, width=gridImageWidth)
-                    else:
-                        st.image("https://upload.wikimedia.org/wikipedia/commons/b/b6/12in-Vinyl-LP-Record-Angle.jpg",
-                                 width=gridImageWidth)
-
-                    st.subheader(row["AlbumName"])
-                    st.caption(f"🎤 {row['Artist']}")
-
-                    displayDuration = row.get("DurationMins", 0)
-                    durationStr = f" | ⏱️ {displayDuration} mins" if displayDuration else ""
-
-                    subGenreStr = f" ({row.get('SubGenre', '')})" if pd.notna(row.get('SubGenre')) and row.get(
-                        'SubGenre') else ""
-
-                    st.write(f"📅 {row['Year']} | 🏷️ {row['Genre']}{subGenreStr}{durationStr}")
-
-                    if st.button("I Listened to This", key=f"btnGrid_{row['ID']}"):
-                        logListeningSession(row["AlbumName"], displayDuration if displayDuration else 45, row["ID"])
-                        st.toast(f"Added {row['AlbumName']} to history!")
-
-        elif layoutMode == "List View":
-            for idx, row in filteredData.iterrows():
-                colImg, colDetails = st.columns([1, 4])
-
-                with colImg:
-                    coverUrl = row.get("CoverURL", "")
-                    if coverUrl and str(coverUrl).startswith("http"):
-                        st.image(coverUrl, width=listImageWidth)
-                    else:
-                        st.image("https://upload.wikimedia.org/wikipedia/commons/b/b6/12in-Vinyl-LP-Record-Angle.jpg",
-                                 width=listImageWidth)
-
-                with colDetails:
-                    st.header(row["AlbumName"])
-                    st.subheader(f"🎤 {row['Artist']}")
-
-                    tracklistData = row.get("Tracklist", "")
-                    if tracklistData:
-                        st.markdown("**Tracklist:**")
-                        tracks = str(tracklistData).split(" | ")
-                        for trackNum, trackName in enumerate(tracks, 1):
-                            st.markdown(f"<div class='tracklist-text'>{trackNum}. {trackName}</div>",
-                                        unsafe_allow_html=True)
-                    else:
-                        st.write("*No tracklist available.*")
-
-                    st.write("---")
-
-                    displayDuration = row.get("DurationMins", 0)
-                    durationStr = f"⏱️ Total Duration: {displayDuration} mins" if displayDuration else "⏱️ Total Duration: Unknown"
-
-                    subGenreStr = f" ({row.get('SubGenre', '')})" if pd.notna(row.get('SubGenre')) and row.get(
-                        'SubGenre') else ""
-
-                    st.write(f"**{durationStr}** | 📅 {row['Year']} | 🏷️ {row['Genre']}{subGenreStr}")
-
-                    if st.button("I Listened to This", key=f"btnList_{row['ID']}"):
-                        logListeningSession(row["AlbumName"], displayDuration if displayDuration else 45, row["ID"])
-                        st.toast(f"Added {row['AlbumName']} to history!")
-
-                st.write("---")
+                        if st.button("I listened to this", key=f"btnList_{row['ID']}"):
+                            logPlay(row["AlbumName"], displayDuration(row), row["ID"])
 
 # TAB 2: ADD NEW VINYL
 with tabAdd:
@@ -501,7 +623,7 @@ with tabAdd:
                         "Tracklist": inputTracklist
                     }
                     addNewVinyl(newVinylDict)
-                    st.success(f"Successfully added {inputAlbum}! Please use the Refresh button.")
+                    saveAndRefresh(f"Added {inputAlbum} to your collection", "💿")
             else:
                 st.warning("Please enter at least Artist and Album name.")
 
@@ -610,9 +732,8 @@ with tabAdd:
                         }
 
                         addNewVinyl(newVinylDict)
-                        st.success(f"Successfully added {finalAlbum}! Please use the Refresh button.")
                         del st.session_state["apiResults"]
-                        st.rerun()
+                        saveAndRefresh(f"Added {finalAlbum} to your collection", "💿")
 
 # TAB 3: LOG LISTENING SESSION
 with tabLog:
@@ -632,9 +753,7 @@ with tabLog:
         st.info(f"Duration to be logged: **{albumDurationInfo} minutes**")
 
         if st.button("Log Session"):
-            logListeningSession(selectedFilterAlbum, int(albumDurationInfo), albumRowInfo["ID"])
-            st.balloons()
-            st.success("Session logged! Enjoy the music. Use Refresh button to update stats.")
+            logPlay(selectedFilterAlbum, int(albumDurationInfo), albumRowInfo["ID"])
     else:
         st.warning("Your collection is currently empty. Please add a vinyl first.")
 
@@ -655,12 +774,7 @@ with tabManage:
             colImgMng, colEditMng = st.columns([1, 3])
 
             with colImgMng:
-                coverUrlMng = targetRow.get("CoverURL", "")
-                if coverUrlMng and str(coverUrlMng).startswith("http"):
-                    st.image(coverUrlMng, use_container_width=True)
-                else:
-                    st.image("https://upload.wikimedia.org/wikipedia/commons/b/b6/12in-Vinyl-LP-Record-Angle.jpg",
-                             use_container_width=True)
+                st.markdown(coverHtml(targetRow.get("CoverURL")), unsafe_allow_html=True)
 
             with colEditMng:
                 updArtist = st.text_input("Artist", value=targetRow.get("Artist", ""), key=f"updArt_{selectedId}")
@@ -715,57 +829,88 @@ with tabManage:
                                                     == oldName.strip().lower()).sum() == 1:
                             linkPastPlays(selectedId, oldName)
                         updateVinyl(selectedId, updatedDataDict)
-                        st.success("Record updated successfully! Please refresh.")
+                        saveAndRefresh(f"Updated {updAlbum}", "💾")
 
                 with colBtnDelete:
                     if st.button("🗑️ Delete Record", use_container_width=True):
                         deleteVinyl(selectedId)
-                        st.error(f"{updAlbum} has been deleted! Please refresh.")
+                        saveAndRefresh(f"Deleted {updAlbum}", "🗑️")
     else:
         st.info("Your collection is currently empty.")
 
 # TAB 5: DASHBOARD & STATISTICS
+def barChart(chartDf, category, value, valueTitle, horizontal=True, height=280):
+    categoryEncoding = alt.Y if horizontal else alt.X
+    valueEncoding = alt.X if horizontal else alt.Y
+    return alt.Chart(chartDf).mark_bar(color=accentColor, cornerRadiusEnd=4).encode(
+        categoryEncoding(f"{category}:N", sort="-x" if horizontal else None, title=None),
+        valueEncoding(f"{value}:Q", title=valueTitle, axis=alt.Axis(tickMinStep=1, format="d")),
+        tooltip=[category, alt.Tooltip(value, title=valueTitle)],
+    ).properties(height=height)
+
+
 with tabDash:
-    st.header("📊 Collection Analytics")
+    st.header("Collection analytics")
 
     if not vinylData.empty:
         colChart1, colChart2 = st.columns(2)
 
         with colChart1:
-            st.subheader("Distribution by Genre")
-            # Creating a simple bar chart for genres
-            genreCounts = vinylData['Genre'].value_counts().reset_index()
-            genreCounts.columns = ['Genre', 'Count']
-            st.bar_chart(genreCounts, x='Genre', y='Count', use_container_width=True)
+            st.subheader("Genres")
+            genreCounts = vinylData["Genre"].value_counts().head(10).rename_axis("Genre").reset_index(name="Records")
+            st.altair_chart(barChart(genreCounts, "Genre", "Records", "Records"), use_container_width=True)
 
         with colChart2:
-            st.subheader("Collection Condition")
-            # Bar chart for vinyl conditions
-            conditionCounts = vinylData['Condition'].value_counts().reset_index()
-            conditionCounts.columns = ['Condition', 'Count']
-            st.bar_chart(conditionCounts, x='Condition', y='Count', use_container_width=True)
+            st.subheader("Decades")
+            decades = (pd.to_numeric(vinylData["Year"], errors="coerce") // 10 * 10).dropna().astype(int)
+            decadeCounts = decades.astype(str).add("s").value_counts().rename_axis("Decade").reset_index(name="Records")
+            if decadeCounts.empty:
+                st.info("Add release years to see your decades.")
+            else:
+                st.altair_chart(barChart(decadeCounts, "Decade", "Records", "Records", horizontal=False)
+                                .encode(x=alt.X("Decade:N", sort=sorted(decadeCounts["Decade"]), title=None, axis=alt.Axis(labelAngle=0))),
+                                use_container_width=True)
 
-        st.write("---")
+        st.subheader("Listening")
+        if not playsData.empty:
+            colChart3, colChart4 = st.columns(2)
 
-        st.subheader("🎧 Most Listened Albums")
-        if not historyData.empty:
-            # Grouping listening history by album and summing durations
-            linkedHistory = linkHistoryToVinyls(historyData, vinylData)
-            linkedHistory["DurationMins"] = pd.to_numeric(linkedHistory["DurationMins"], errors="coerce").fillna(0)
+            with colChart3:
+                st.caption("Hours per week, last 12 weeks")
+                weeklyHours = (playsData.dropna(subset=["When"]).set_index("When")["DurationMins"]
+                               .resample("W-MON").sum().tail(12) / 60).rename("Hours").reset_index()
+                weeklyHours["Week"] = weeklyHours["When"].dt.strftime("%d %b")
+                st.altair_chart(
+                    alt.Chart(weeklyHours).mark_bar(color=accentColor, cornerRadiusEnd=4).encode(
+                        alt.X("Week:N", sort=None, title=None),
+                        alt.Y("Hours:Q", title="Hours"),
+                        tooltip=["Week", alt.Tooltip("Hours", format=".1f")],
+                    ).properties(height=280),
+                    use_container_width=True)
 
-            # Plays follow the record's current name; plays without a record keep the name they were logged with
-            idToLabel = {int(r.ID): f"{r.Artist} - {r.AlbumName}" for r in vinylData.itertuples()}
-            linkedHistory["Album"] = [idToLabel.get(int(vinylId), albumName) if pd.notna(vinylId) else albumName
-                                      for vinylId, albumName in zip(linkedHistory["VinylID"],
-                                                                    linkedHistory["AlbumName"])]
-
-            topListened = linkedHistory.groupby("Album").agg(
-                **{"Total Minutes Listened": ("DurationMins", "sum"), "Plays": ("Album", "size")}
-            ).reset_index()
-            topListened = topListened.sort_values(by="Total Minutes Listened", ascending=False).head(5)
-            st.dataframe(topListened, use_container_width=True, hide_index=True)
+            with colChart4:
+                st.caption("Most listened albums")
+                topListened = playsData.groupby("Album").agg(
+                    Minutes=("DurationMins", "sum"), Plays=("Album", "size")).reset_index()
+                topListened = topListened.sort_values(by="Minutes", ascending=False).head(8)
+                st.altair_chart(
+                    barChart(topListened, "Album", "Minutes", "Minutes listened").encode(
+                        y=alt.Y("Album:N", sort="-x", title=None, axis=alt.Axis(labelLimit=220)),
+                        tooltip=["Album", "Minutes", "Plays"]),
+                    use_container_width=True)
         else:
-            st.info("Log some listening sessions to see your top albums here!")
+            st.info("Log some listening sessions to see your listening charts here!")
+
+        st.subheader("Condition")
+        conditionCounts = vinylData["Condition"].value_counts().rename_axis("Condition").reset_index(name="Records")
+        st.altair_chart(
+            alt.Chart(conditionCounts).mark_arc(innerRadius=60).encode(
+                theta="Records:Q",
+                color=alt.Color("Condition:N", scale=alt.Scale(
+                    range=[accentColor, "#3DD6C3", "#FF6B5A", "#8B7CF6", "#6B7280"])),
+                tooltip=["Condition", "Records"],
+            ).properties(height=240),
+            use_container_width=True)
 
     else:
-        st.warning("Not enough data to generate analytics. Start adding vinyls to your collection!")
+        st.info("Not enough data to generate analytics. Start adding vinyls to your collection!")
