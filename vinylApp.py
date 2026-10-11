@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 import requests
 import time
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, available_timezones
 import json
 import base64
 from supabase import create_client, Client
@@ -21,6 +21,7 @@ except ImportError:
 
 # --- GLOBAL UI SETTINGS ---
 gridColumns = 4
+fallbackTimezone = "Europe/Istanbul"  # used when the browser does not report its timezone
 accentColor = "#F5B83D"
 mutedColor = "#9A9AA8"
 
@@ -294,20 +295,35 @@ def deleteVinyl(vinylId):
     supabase.table("Inventory").delete().eq("ID", vinylId).execute()
 
 
+def defaultTimezone():
+    # A timezone in the page address wins, then the browser's, then the fallback
+    browserTimezone = getattr(st.context, "timezone", None)
+    for candidate in (st.query_params.get("tz"), browserTimezone):
+        if candidate in available_timezones():
+            return candidate
+    return fallbackTimezone
+
+
+def displayTimezone():
+    return st.session_state.get("displayTz") or defaultTimezone()
+
+
 def localNow():
-    # The browser's clock and timezone, so a play is stamped with the viewer's own time rather than the server's
-    try:
-        return datetime.now(ZoneInfo(st.context.timezone)).replace(tzinfo=None)
-    except Exception:
-        return datetime.now()
+    # The current time on the wall clock of the chosen timezone
+    return datetime.now(ZoneInfo(displayTimezone())).replace(tzinfo=None)
+
+
+def toStoredTime(localTime):
+    # Plays are stored in UTC with an explicit offset, so they read the same wherever the app runs
+    utcTime = localTime.replace(tzinfo=ZoneInfo(displayTimezone())).astimezone(timezone.utc)
+    return utcTime.strftime("%Y-%m-%dT%H:%M:00+00:00")
 
 
 def logListeningSession(albumName, durationMinutes, vinylId=None, playedAt=None):
-    # Returns (linked to a record, id of the new history row)
+    # Returns (linked to a record, id of the new history row). playedAt is local time in the chosen timezone.
     supabase = initSupabase()
     playedAt = playedAt or localNow()
-    dataDict = {"Date": playedAt.strftime("%Y-%m-%d %H:%M"), "AlbumName": albumName,
-                "DurationMins": durationMinutes}
+    dataDict = {"Date": toStoredTime(playedAt), "AlbumName": albumName, "DurationMins": durationMinutes}
     if vinylId is not None:
         dataDict["VinylID"] = int(vinylId)
 
@@ -453,8 +469,10 @@ def buildPlayTable(historyDf, inventoryDf):
 
     playsDf = linkHistoryToVinyls(historyDf, inventoryDf)
     playsDf["DurationMins"] = pd.to_numeric(playsDf["DurationMins"], errors="coerce").fillna(0)
-    # Dates are written as "YYYY-MM-DD HH:MM" text, but accept full ISO timestamps too
-    playsDf["When"] = pd.to_datetime(playsDf["Date"], errors="coerce", format="mixed", utc=True).dt.tz_convert(None)
+    # Stored times are UTC. Older plays are "YYYY-MM-DD HH:MM" text written on a UTC server; newer ones are ISO
+    # timestamps. Both are shown on the wall clock of the chosen timezone.
+    playsDf["When"] = (pd.to_datetime(playsDf["Date"], errors="coerce", format="mixed", utc=True)
+                       .dt.tz_convert(displayTimezone()).dt.tz_localize(None))
 
     # Plays follow the record's current name; plays without a record keep the name they were logged with
     idToLabel = {int(r.ID): f"{r.Artist} - {r.AlbumName}" for r in inventoryDf.itertuples()}
@@ -473,7 +491,7 @@ def listeningStreaks(playsDf, today=None):
     if not days:
         return 0, 0
 
-    today = today if today is not None else pd.Timestamp.now().normalize()
+    today = today if today is not None else pd.Timestamp(localNow()).normalize()
     longest = run = 1
     for previousDay, day in zip(days, days[1:]):
         run = run + 1 if (day - previousDay).days == 1 else 1
@@ -486,7 +504,7 @@ def listeningStreaks(playsDf, today=None):
 def dustiestRecords(inventoryDf, playsDf, today=None):
     # One row per record: when it was last played and how many days ago. Never-played records come first,
     # then the ones left longest on the shelf.
-    today = today if today is not None else pd.Timestamp.now().normalize()
+    today = today if today is not None else pd.Timestamp(localNow()).normalize()
     lastPlayedById = {}
     if not playsDf.empty:
         lastPlayed = playsDf.dropna(subset=["VinylID", "When"]).groupby("VinylID")["When"].max()
@@ -499,11 +517,17 @@ def dustiestRecords(inventoryDf, playsDf, today=None):
 
 
 # --- SIDEBAR & REFRESH ---
+if "displayTz" not in st.session_state:
+    st.session_state["displayTz"] = defaultTimezone()
+
 with st.sidebar:
     st.header("Settings")
     if st.button("🔄 Refresh Data"):
         st.cache_data.clear()
         st.rerun()
+    st.selectbox("Timezone", sorted(available_timezones()), key="displayTz",
+                 help="Listening times are shown on this clock.",
+                 on_change=lambda: st.query_params.update(tz=st.session_state["displayTz"]))
 
 # --- USER INTERFACE (UI) ---
 if "flashMessage" in st.session_state:

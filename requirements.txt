@@ -5,3 +5,4 @@ supabase
 pyzbar
 Pillow
 altair
+tzdata
