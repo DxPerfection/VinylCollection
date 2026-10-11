@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import json
 import base64
 from supabase import create_client, Client
@@ -57,7 +58,8 @@ st.markdown("""
     /* Stat cards */
     .vc-stat {background: var(--vc-surface); border: 1px solid var(--vc-border); border-radius: 16px; padding: 16px 20px; min-height: 118px;}
     .vc-stat-label {color: var(--vc-muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em;}
-    .vc-stat-value {color: var(--vc-text); font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; line-height: 1.25;}
+    .vc-stat-value {color: var(--vc-text); font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; line-height: 1.25;
+        font-variant-numeric: lining-nums;}
     .vc-stat-value-sm {font-size: 1.45rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
     .vc-stat-sub {color: var(--vc-accent); font-size: 0.82rem; min-height: 1.1em;}
 
@@ -86,6 +88,11 @@ st.markdown("""
     .vc-pill {background: var(--vc-surface-2); border: 1px solid var(--vc-border); color: var(--vc-muted);
         border-radius: 999px; padding: 2px 10px; font-size: 0.74rem;}
     .vc-pill-accent {color: var(--vc-accent); border-color: rgba(245, 184, 61, 0.4);}
+    .vc-last {color: var(--vc-muted); font-size: 0.78rem; margin: -2px 0 10px 0;}
+    .vc-banner {background: var(--vc-surface); border: 1px solid rgba(245, 184, 61, 0.4); border-radius: 12px;
+        padding: 9px 14px; color: var(--vc-text);}
+    .vc-hist {color: var(--vc-text); font-size: 0.92rem; padding: 6px 0;}
+    .vc-hist-muted {color: var(--vc-muted);}
     .vc-count {color: var(--vc-muted); font-size: 0.85rem; margin: 4px 0 14px 0;}
     .vc-empty {text-align: center; padding: 56px 20px; border: 1px dashed var(--vc-border); border-radius: 16px;
         color: var(--vc-muted);}
@@ -287,23 +294,40 @@ def deleteVinyl(vinylId):
     supabase.table("Inventory").delete().eq("ID", vinylId).execute()
 
 
-def logListeningSession(albumName, durationMinutes, vinylId=None):
+def localNow():
+    # The browser's clock and timezone, so a play is stamped with the viewer's own time rather than the server's
+    try:
+        return datetime.now(ZoneInfo(st.context.timezone)).replace(tzinfo=None)
+    except Exception:
+        return datetime.now()
+
+
+def logListeningSession(albumName, durationMinutes, vinylId=None, playedAt=None):
+    # Returns (linked to a record, id of the new history row)
     supabase = initSupabase()
-    currentDate = datetime.now().strftime("%Y-%m-%d %H:%M")
-    dataDict = {"Date": currentDate, "AlbumName": albumName, "DurationMins": durationMinutes}
+    playedAt = playedAt or localNow()
+    dataDict = {"Date": playedAt.strftime("%Y-%m-%d %H:%M"), "AlbumName": albumName,
+                "DurationMins": durationMinutes}
     if vinylId is not None:
         dataDict["VinylID"] = int(vinylId)
 
+    linked = True
     try:
-        supabase.table("ListeningHistory").insert(dataDict).execute()
-        return True
+        response = supabase.table("ListeningHistory").insert(dataDict).execute()
     except Exception as e:
         # The VinylID column only exists after migrations/001_listening_history_vinyl_id.sql has been run.
         if "VinylID" not in str(e):
             raise
         dataDict.pop("VinylID")
-        supabase.table("ListeningHistory").insert(dataDict).execute()
-        return False
+        response = supabase.table("ListeningHistory").insert(dataDict).execute()
+        linked = False
+
+    return linked, (response.data[0].get("id") if response.data else None)
+
+
+def deletePlay(playId):
+    supabase = initSupabase()
+    supabase.table("ListeningHistory").delete().eq("id", int(playId)).execute()
 
 
 def linkPastPlays(vinylId, albumName):
@@ -361,8 +385,13 @@ def saveAndRefresh(message, icon="✅"):
     st.rerun()
 
 
-def logPlay(albumName, durationMinutes, vinylId):
-    if logListeningSession(albumName, durationMinutes, vinylId):
+def logPlay(albumName, durationMinutes, vinylId, playedAt=None):
+    playedAt = playedAt or localNow()
+    linked, playId = logListeningSession(albumName, durationMinutes, vinylId, playedAt)
+    if playId is not None:
+        st.session_state["lastPlay"] = {"id": playId, "label": albumName, "when": playedAt.strftime("%H:%M")}
+
+    if linked:
         saveAndRefresh(f"Logged {albumName}. Enjoy the music!", "🎧")
     else:
         saveAndRefresh(f"Logged {albumName}, but it is not linked to the record yet. "
@@ -392,6 +421,12 @@ def pillsHtml(row):
     if pd.notna(duration) and duration > 0:
         pills.append(f'<span class="vc-pill">{int(duration)} min</span>')
     return f'<div class="vc-pills">{"".join(pills)}</div>'
+
+
+def lastPlayedHtml(lastPlayed):
+    if pd.isna(lastPlayed):
+        return '<div class="vc-last">Not played yet</div>'
+    return f'<div class="vc-last">▶ Last played {lastPlayed.strftime("%d %b %Y, %H:%M")}</div>'
 
 
 def statCard(label, value, sub=""):
@@ -480,6 +515,20 @@ st.markdown(
     '<p>Your records and everything you have spun.</p></div></div>',
     unsafe_allow_html=True)
 
+if "lastPlay" in st.session_state:
+    lastPlay = st.session_state["lastPlay"]
+    bannerText, bannerUndo, bannerClose = st.columns([7, 1.4, 1.6], vertical_alignment="center")
+    bannerText.markdown(f'<div class="vc-banner">🎧 Logged <b>{esc(lastPlay["label"])}</b> at {lastPlay["when"]}</div>',
+                        unsafe_allow_html=True)
+    if bannerUndo.button("Undo", key="undoLastPlay"):
+        deletePlay(lastPlay["id"])
+        st.session_state.pop("lastPlay")
+        saveAndRefresh(f"Removed the play of {lastPlay['label']}", "↩️")
+    if bannerClose.button("Dismiss", key="dismissLastPlay"):
+        st.session_state.pop("lastPlay")
+        st.rerun()
+    st.write("")
+
 vinylData = fetchData("Inventory")
 historyData = fetchData("ListeningHistory")
 playsData = buildPlayTable(historyData, vinylData)
@@ -566,7 +615,8 @@ with tabGallery:
                         st.markdown(
                             coverHtml(row.get("CoverURL")) +
                             f'<div class="vc-title" title="{esc(row["AlbumName"])}">{esc(row["AlbumName"])}</div>'
-                            f'<div class="vc-artist">{esc(row["Artist"])}</div>' + pillsHtml(row),
+                            f'<div class="vc-artist">{esc(row["Artist"])}</div>' + pillsHtml(row) +
+                            lastPlayedHtml(row["LastPlayed"]),
                             unsafe_allow_html=True)
                         if st.button("I listened to this", key=f"btnGrid_{row['ID']}"):
                             logPlay(row["AlbumName"], displayDuration(row), row["ID"])
@@ -579,7 +629,8 @@ with tabGallery:
                     with colDetails:
                         st.markdown(
                             f'<div class="vc-title-lg">{esc(row["AlbumName"])}</div>'
-                            f'<div class="vc-artist">{esc(row["Artist"])}</div>' + pillsHtml(row),
+                            f'<div class="vc-artist">{esc(row["Artist"])}</div>' + pillsHtml(row) +
+                            lastPlayedHtml(row["LastPlayed"]),
                             unsafe_allow_html=True)
 
                         tracklistData = row.get("Tracklist", "")
@@ -785,25 +836,64 @@ with tabAdd:
 
 # TAB 3: LOG LISTENING SESSION
 with tabLog:
-    st.header("Automatic Listening Entry")
+    st.header("Log a listen")
 
     if not vinylData.empty:
-        selectedFilterArtist = st.selectbox("Select Artist", vinylData["Artist"].unique(), key="logArtist")
+        colArtist, colAlbum = st.columns(2)
+        selectedFilterArtist = colArtist.selectbox("Artist", vinylData["Artist"].unique(), key="logArtist")
         artistAlbumsData = vinylData[vinylData["Artist"] == selectedFilterArtist]
-        selectedFilterAlbum = st.selectbox("Select Album", artistAlbumsData["AlbumName"].unique(), key="logAlbum")
+        selectedFilterAlbum = colAlbum.selectbox("Album", artistAlbumsData["AlbumName"].unique(), key="logAlbum")
 
         albumRowInfo = artistAlbumsData[artistAlbumsData["AlbumName"] == selectedFilterAlbum].iloc[0]
-        albumDurationInfo = albumRowInfo.get("DurationMins", 0)
+        albumDurationInfo = pd.to_numeric(albumRowInfo.get("DurationMins", 0), errors="coerce")
+        albumDurationInfo = 0 if pd.isna(albumDurationInfo) else int(albumDurationInfo)
 
-        if pd.isna(albumDurationInfo) or albumDurationInfo == "":
-            albumDurationInfo = 0
+        colPart, colMinutes = st.columns(2)
+        playedPart = colPart.radio("What did you play?", ["Full album", "Side A", "Side B"], horizontal=True,
+                                   key="logPart")
+        # A side is taken as half the album; the minutes can be adjusted
+        suggestedMinutes = albumDurationInfo if playedPart == "Full album" else round(albumDurationInfo / 2)
+        playedMinutes = colMinutes.number_input("Minutes", min_value=0, value=suggestedMinutes,
+                                                key=f"logMinutes_{albumRowInfo['ID']}_{playedPart}")
 
-        st.info(f"Duration to be logged: **{albumDurationInfo} minutes**")
+        playedNow = st.toggle("Played just now", value=True, key="logNow")
+        playedAt = localNow()
+        if not playedNow:
+            colDate, colTime = st.columns(2)
+            playedDate = colDate.date_input("Date", value=playedAt.date(), max_value=playedAt.date(), key="logDate")
+            playedTime = colTime.time_input("Time", value=playedAt.time().replace(second=0, microsecond=0),
+                                            key="logTime")
+            playedAt = datetime.combine(playedDate, playedTime)
 
-        if st.button("Log Session"):
-            logPlay(selectedFilterAlbum, int(albumDurationInfo), albumRowInfo["ID"])
+        if st.button("Log listen", type="primary"):
+            if playedAt > localNow():
+                st.warning("That time is in the future. Pick a time that has already passed.")
+            else:
+                logPlay(selectedFilterAlbum, int(playedMinutes), albumRowInfo["ID"], playedAt)
     else:
         st.warning("Your collection is currently empty. Please add a vinyl first.")
+
+    st.subheader("Recent listening")
+    if not playsData.empty:
+        recentPlays = playsData.sort_values(by="When", ascending=False, na_position="last").head(15)
+        st.markdown(f'<div class="vc-count">Showing the latest {len(recentPlays)} of {len(playsData)} plays</div>',
+                    unsafe_allow_html=True)
+        for _, play in recentPlays.iterrows():
+            colWhen, colAlbumName, colLength, colDelete = st.columns([3, 5, 1.3, 1.3], vertical_alignment="center")
+            if pd.notna(play["When"]):
+                whenText = f'{play["When"].strftime("%a %d %b %Y")} <span class="vc-hist-muted">at ' \
+                           f'{play["When"].strftime("%H:%M")}</span>'
+            else:
+                whenText = esc(play["Date"])
+            colWhen.markdown(f'<div class="vc-hist">{whenText}</div>', unsafe_allow_html=True)
+            colAlbumName.markdown(f'<div class="vc-hist">{esc(play["Album"])}</div>', unsafe_allow_html=True)
+            colLength.markdown(f'<div class="vc-hist vc-hist-muted">{int(play["DurationMins"])} min</div>',
+                               unsafe_allow_html=True)
+            if "id" in play and pd.notna(play["id"]) and colDelete.button("Delete", key=f"delPlay_{play['id']}"):
+                deletePlay(play["id"])
+                saveAndRefresh(f"Removed the play of {play['Album']}", "🗑️")
+    else:
+        st.info("No listening sessions yet. Log one above, or use \"I listened to this\" on the Collection tab.")
 
 # TAB 4: MANAGE COLLECTION
 with tabManage:
