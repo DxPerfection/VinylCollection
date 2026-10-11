@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 import requests
 import time
+import io
+import math
+from collections import Counter
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, available_timezones
 import json
@@ -465,6 +468,158 @@ def formatDays(dayCount):
 def backupCsv(tableDf):
     # utf-8-sig lets Excel read accented names; convert_dtypes keeps IDs as whole numbers (no "12.0")
     return tableDf.convert_dtypes().to_csv(index=False).encode("utf-8-sig")
+
+
+def toNumber(text):
+    # "43" or "43.0" -> 43; empty or not a number -> None
+    try:
+        number = float(text)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return int(number) if number.is_integer() else number
+
+
+def readBackupCsv(uploadedFile, requiredColumns, noun):
+    # Returns (table, problem). Everything stays text so IDs and years come back exactly as exported.
+    try:
+        table = pd.read_csv(io.BytesIO(uploadedFile.getvalue()), dtype=str, keep_default_na=False,
+                            encoding="utf-8-sig")
+    except (pd.errors.ParserError, pd.errors.EmptyDataError, UnicodeDecodeError):
+        return None, "That file could not be read as a CSV. If you saved it from Excel, choose CSV UTF-8."
+    table.columns = [str(column).strip() for column in table.columns]
+    missing = [column for column in requiredColumns if column not in table.columns]
+    if missing:
+        return None, f"This does not look like a {noun} backup: it has no {' or '.join(missing)} column."
+    return table, None
+
+
+recordTextColumns = ["Artist", "AlbumName", "Genre", "SubGenre", "Year", "CoverURL", "Condition", "Tracklist"]
+
+
+def planRecordRestore(fileDf, currentDf):
+    # Returns (records to add, counts of rows left alone). A record counts as present when the app already holds
+    # its ID, or the same artist and album under another ID (the Add New tab refuses those too).
+    knownIds = {int(recordId) for recordId in pd.to_numeric(currentDf["ID"], errors="coerce").dropna()}
+    toAdd, seenIds = [], set()
+    skipped = {"have": 0, "sameAlbum": 0, "unusable": 0}
+    for raw in fileDf.to_dict("records"):
+        recordId = toNumber(raw["ID"])
+        if not isinstance(recordId, int):
+            skipped["unusable"] += 1
+        elif recordId in knownIds or recordId in seenIds:
+            skipped["have"] += 1
+        elif isDuplicate(raw["Artist"], raw["AlbumName"], currentDf):
+            skipped["sameAlbum"] += 1
+        else:
+            row = {"ID": recordId, **{column: raw.get(column, "") for column in recordTextColumns}}
+            minutes = toNumber(raw.get("DurationMins"))
+            if minutes is not None:
+                row["DurationMins"] = minutes
+            toAdd.append(row)
+            seenIds.add(recordId)
+    return toAdd, skipped
+
+
+def playKey(date, albumName, minutes, vinylId):
+    return str(date).strip(), str(albumName).strip(), toNumber(minutes), toNumber(vinylId)
+
+
+def planPlayRestore(fileDf, currentDf):
+    # A play id does not survive a restore, so a play counts as present when the app holds one with the same
+    # date, album, minutes and record link. Two identical plays in the file need two in the app.
+    held = Counter(playKey(raw.get("Date"), raw.get("AlbumName"), raw.get("DurationMins"), raw.get("VinylID"))
+                   for raw in currentDf.to_dict("records"))
+    toAdd = []
+    skipped = {"have": 0, "unusable": 0}
+    for raw in fileDf.to_dict("records"):
+        key = playKey(raw["Date"], raw["AlbumName"], raw.get("DurationMins"), raw.get("VinylID"))
+        if not key[0] or not key[1]:
+            skipped["unusable"] += 1
+        elif held[key] > 0:
+            held[key] -= 1
+            skipped["have"] += 1
+        else:
+            row = {"Date": raw["Date"], "AlbumName": raw["AlbumName"]}
+            if key[2] is not None:
+                row["DurationMins"] = key[2]
+            if key[3] is not None:
+                row["VinylID"] = int(key[3])
+            toAdd.append(row)
+    return toAdd, skipped
+
+
+def insertInChunks(tableName, rows, chunkSize=200):
+    # Returns (rows added, first error message). A chunk the database rejects is retried row by row so one bad row
+    # cannot block the rest. Any other failure, such as a lost connection, stops here: the chunk may have been
+    # saved, and retrying it could add it twice.
+    supabase = initSupabase()
+    added, firstError = 0, None
+    for start in range(0, len(rows), chunkSize):
+        chunk = rows[start:start + chunkSize]
+        try:
+            supabase.table(tableName).insert(chunk).execute()
+            added += len(chunk)
+            continue
+        except Exception as e:
+            firstError = firstError or str(e)
+            if not hasattr(e, "code"):  # a rejection from the database (APIError) carries a code
+                break
+        addedBefore = added
+        for row in chunk:
+            try:
+                supabase.table(tableName).insert(row).execute()
+                added += 1
+            except Exception:
+                pass
+        if added == addedBefore:
+            break
+    return added, firstError
+
+
+skipLabels = {"have": "already in the app", "sameAlbum": "same album as one already in the app",
+              "unusable": "unreadable"}
+
+
+def restorePanel(title, noun, tableName, requiredColumns, planRestore, currentDf):
+    # Upload, preview what would be added, then add it. Restoring never changes or deletes existing rows.
+    restoreRound = st.session_state.get(f"restoreRound_{tableName}", 0)
+    uploaded = st.file_uploader(title, type="csv", key=f"restoreFile_{tableName}_{restoreRound}")
+    if uploaded is None:
+        return
+
+    fileDf, problem = readBackupCsv(uploaded, requiredColumns, noun)
+    if problem:
+        st.error(problem)
+        return
+    if currentDf.columns.empty:
+        st.error("The app could not load its current data, so it cannot tell what is missing. Press Refresh Data.")
+        return
+
+    toAdd, skipped = planRestore(fileDf, currentDf)
+    summary = f"{len(fileDf)} {noun} in the file: {len(toAdd)} to restore"
+    summary += "".join(f", {count} {skipLabels[reason]}" for reason, count in skipped.items() if count)
+    st.caption(summary)
+
+    if st.button(f"Restore {len(toAdd)} {noun}", key=f"restoreGo_{tableName}_{restoreRound}", disabled=not toAdd,
+                 type="primary", use_container_width=True):
+        # Plan again on freshly read data, so a stale page can never add something twice
+        st.cache_data.clear()
+        freshDf = fetchData(tableName)
+        if freshDf.columns.empty:
+            st.error("The app could not load its current data, so nothing was restored.")
+            return
+        toAdd, _ = planRestore(fileDf, freshDf)
+        added, firstError = insertInChunks(tableName, toAdd)
+        if added == len(toAdd) and added:
+            st.session_state[f"restoreRound_{tableName}"] = restoreRound + 1  # empties the uploader
+            saveAndRefresh(f"Restored {added} {noun}", "♻️")
+        st.cache_data.clear()
+        if added == len(toAdd):
+            st.info("Nothing to restore: the app already has every row.")
+        else:
+            st.warning(f"Restored {added} of {len(toAdd)} {noun}. The rest could not be saved: {firstError}")
 
 
 def buildPlayTable(historyDf, inventoryDf):
@@ -1020,6 +1175,18 @@ with tabManage:
         st.download_button(f"⬇️ Listening history ({len(historyData)})", data=backupCsv(historyData),
                            file_name=f"vinyl-listening-history-{backupStamp}.csv", mime="text/csv",
                            disabled=historyData.columns.empty, use_container_width=True, key="backupPlays")
+
+    st.write("---")
+    st.subheader("Restore from a backup")
+    st.caption("Upload a CSV made by the buttons above. Restoring only adds what is missing: nothing in the app is "
+               "changed or deleted, and uploading the same file again adds nothing.")
+    colRestoreRecords, colRestorePlays = st.columns(2)
+    with colRestoreRecords:
+        restorePanel("Records CSV", "records", "Inventory", ["ID", "Artist", "AlbumName"],
+                     planRecordRestore, vinylData)
+    with colRestorePlays:
+        restorePanel("Listening history CSV", "plays", "ListeningHistory", ["Date", "AlbumName"],
+                     planPlayRestore, historyData)
 
 # TAB 5: DASHBOARD & STATISTICS
 def barChart(chartDf, category, value, valueTitle, horizontal=True, height=280):
