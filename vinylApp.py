@@ -102,7 +102,7 @@ st.markdown("""
     /* Controls */
     div[data-testid="stElementContainer"]:has(> div[data-testid="stButton"]),
     div[data-testid="stButton"], div[data-testid="stButton"] > button {width: 100% !important;}
-    div[data-testid="stButton"] > button {border-radius: 999px; font-weight: 500;}
+    div[data-testid="stButton"] > button, div[data-testid="stDownloadButton"] > button {border-radius: 999px; font-weight: 500;}
     h2, h3 {font-family: 'Playfair Display', serif;}
     @media (max-width: 640px) {.vc-hero h1 {font-size: 1.9rem;} .vc-disc {width: 56px; height: 56px;}}
 </style>
@@ -460,6 +460,11 @@ def formatMinutes(totalMinutes):
 
 def formatDays(dayCount):
     return f"{dayCount} day" if dayCount == 1 else f"{dayCount} days"
+
+
+def backupCsv(tableDf):
+    # utf-8-sig lets Excel read accented names; convert_dtypes keeps IDs as whole numbers (no "12.0")
+    return tableDf.convert_dtypes().to_csv(index=False).encode("utf-8-sig")
 
 
 def buildPlayTable(historyDf, inventoryDf):
@@ -999,6 +1004,22 @@ with tabManage:
                         saveAndRefresh(f"Deleted {updAlbum}", "🗑️")
     else:
         st.info("Your collection is currently empty.")
+
+    st.write("---")
+    st.subheader("Backup")
+    st.caption("Download your data as CSV files to keep safe or open in a spreadsheet. "
+               "They hold what the app shows now (press Refresh Data first if you changed the tables elsewhere), "
+               "and listening times are saved in UTC.")
+    backupStamp = localNow().strftime("%Y-%m-%d")
+    colBackupRecords, colBackupPlays = st.columns(2)
+    with colBackupRecords:
+        st.download_button(f"⬇️ Records ({len(vinylData)})", data=backupCsv(vinylData),
+                           file_name=f"vinyl-records-{backupStamp}.csv", mime="text/csv",
+                           disabled=vinylData.columns.empty, use_container_width=True, key="backupRecords")
+    with colBackupPlays:
+        st.download_button(f"⬇️ Listening history ({len(historyData)})", data=backupCsv(historyData),
+                           file_name=f"vinyl-listening-history-{backupStamp}.csv", mime="text/csv",
+                           disabled=historyData.columns.empty, use_container_width=True, key="backupPlays")
 
 # TAB 5: DASHBOARD & STATISTICS
 def barChart(chartDf, category, value, valueTitle, horizontal=True, height=280):
