@@ -190,7 +190,7 @@ def fetchData(tableName):
                     columns=["ID", "Artist", "AlbumName", "Genre", "SubGenre", "Year", "CoverURL", "Condition",
                              "DurationMins", "Tracklist"])
             elif tableName == "ListeningHistory":
-                df = pd.DataFrame(columns=["id", "Date", "AlbumName", "DurationMins"])
+                df = pd.DataFrame(columns=["id", "Date", "AlbumName", "DurationMins", "VinylID"])
         return df
     except Exception as e:
         st.error(f"Data could not be fetched from database: {e}")
@@ -212,11 +212,55 @@ def deleteVinyl(vinylId):
     supabase.table("Inventory").delete().eq("ID", vinylId).execute()
 
 
-def logListeningSession(albumName, durationMinutes):
+def logListeningSession(albumName, durationMinutes, vinylId=None):
     supabase = initSupabase()
     currentDate = datetime.now().strftime("%Y-%m-%d %H:%M")
     dataDict = {"Date": currentDate, "AlbumName": albumName, "DurationMins": durationMinutes}
-    supabase.table("ListeningHistory").insert(dataDict).execute()
+    if vinylId is not None:
+        dataDict["VinylID"] = int(vinylId)
+
+    try:
+        supabase.table("ListeningHistory").insert(dataDict).execute()
+    except Exception as e:
+        # The VinylID column only exists after migrations/001_listening_history_vinyl_id.sql has been run.
+        if "VinylID" not in str(e):
+            raise
+        dataDict.pop("VinylID")
+        supabase.table("ListeningHistory").insert(dataDict).execute()
+        st.warning("Session logged, but not linked to the record yet. "
+                   "Run migrations/001_listening_history_vinyl_id.sql in the Supabase SQL editor.")
+
+
+def linkPastPlays(vinylId, albumName):
+    # Pins old plays that only know the album name to this record, so a later rename cannot orphan them.
+    try:
+        supabase = initSupabase()
+        supabase.table("ListeningHistory").update({"VinylID": int(vinylId)}) \
+            .eq("AlbumName", albumName).is_("VinylID", "null").execute()
+    except Exception:
+        pass  # VinylID column not created yet; nothing to link
+
+
+def linkHistoryToVinyls(historyDf, inventoryDf):
+    # Plays logged after the migration carry VinylID. Older plays fall back to an album name match,
+    # used only when exactly one record has that name.
+    if historyDf.empty:
+        return historyDf
+
+    linkedDf = historyDf.copy()
+    if "VinylID" in linkedDf.columns:
+        linkedDf["VinylID"] = pd.to_numeric(linkedDf["VinylID"], errors="coerce").astype("Int64")
+    else:
+        linkedDf["VinylID"] = pd.array([pd.NA] * len(linkedDf), dtype="Int64")
+
+    if not inventoryDf.empty:
+        nameKeys = inventoryDf["AlbumName"].astype(str).str.strip().str.lower()
+        uniqueRecords = inventoryDf[nameKeys.map(nameKeys.value_counts()) == 1]
+        nameToId = dict(zip(nameKeys[uniqueRecords.index], uniqueRecords["ID"]))
+        guessedIds = linkedDf["AlbumName"].astype(str).str.strip().str.lower().map(nameToId)
+        linkedDf["VinylID"] = linkedDf["VinylID"].fillna(pd.to_numeric(guessedIds, errors="coerce").astype("Int64"))
+
+    return linkedDf
 
 
 def isDuplicate(artistName, albumName, existingDataDf):
@@ -333,7 +377,7 @@ with tabGallery:
                     st.write(f"📅 {row['Year']} | 🏷️ {row['Genre']}{subGenreStr}{durationStr}")
 
                     if st.button("I Listened to This", key=f"btnGrid_{row['ID']}"):
-                        logListeningSession(row["AlbumName"], displayDuration if displayDuration else 45)
+                        logListeningSession(row["AlbumName"], displayDuration if displayDuration else 45, row["ID"])
                         st.toast(f"Added {row['AlbumName']} to history!")
 
         elif layoutMode == "List View":
@@ -373,7 +417,7 @@ with tabGallery:
                     st.write(f"**{durationStr}** | 📅 {row['Year']} | 🏷️ {row['Genre']}{subGenreStr}")
 
                     if st.button("I Listened to This", key=f"btnList_{row['ID']}"):
-                        logListeningSession(row["AlbumName"], displayDuration if displayDuration else 45)
+                        logListeningSession(row["AlbumName"], displayDuration if displayDuration else 45, row["ID"])
                         st.toast(f"Added {row['AlbumName']} to history!")
 
                 st.write("---")
@@ -588,7 +632,7 @@ with tabLog:
         st.info(f"Duration to be logged: **{albumDurationInfo} minutes**")
 
         if st.button("Log Session"):
-            logListeningSession(selectedFilterAlbum, int(albumDurationInfo))
+            logListeningSession(selectedFilterAlbum, int(albumDurationInfo), albumRowInfo["ID"])
             st.balloons()
             st.success("Session logged! Enjoy the music. Use Refresh button to update stats.")
     else:
@@ -666,6 +710,10 @@ with tabManage:
                             "Condition": updCondition,
                             "CoverURL": updCover
                         }
+                        oldName = str(targetRow["AlbumName"])
+                        if updAlbum != oldName and (vinylData["AlbumName"].astype(str).str.strip().str.lower()
+                                                    == oldName.strip().lower()).sum() == 1:
+                            linkPastPlays(selectedId, oldName)
                         updateVinyl(selectedId, updatedDataDict)
                         st.success("Record updated successfully! Please refresh.")
 
@@ -702,11 +750,19 @@ with tabDash:
         st.subheader("🎧 Most Listened Albums")
         if not historyData.empty:
             # Grouping listening history by album and summing durations
-            topListened = historyData.groupby("AlbumName")["DurationMins"].sum().reset_index()
-            topListened = topListened.sort_values(by="DurationMins", ascending=False).head(5)
+            linkedHistory = linkHistoryToVinyls(historyData, vinylData)
+            linkedHistory["DurationMins"] = pd.to_numeric(linkedHistory["DurationMins"], errors="coerce").fillna(0)
 
-            # Formatting the data for better display
-            topListened.columns = ['Album', 'Total Minutes Listened']
+            # Plays follow the record's current name; plays without a record keep the name they were logged with
+            idToLabel = {int(r.ID): f"{r.Artist} - {r.AlbumName}" for r in vinylData.itertuples()}
+            linkedHistory["Album"] = [idToLabel.get(int(vinylId), albumName) if pd.notna(vinylId) else albumName
+                                      for vinylId, albumName in zip(linkedHistory["VinylID"],
+                                                                    linkedHistory["AlbumName"])]
+
+            topListened = linkedHistory.groupby("Album").agg(
+                **{"Total Minutes Listened": ("DurationMins", "sum"), "Plays": ("Album", "size")}
+            ).reset_index()
+            topListened = topListened.sort_values(by="Total Minutes Listened", ascending=False).head(5)
             st.dataframe(topListened, use_container_width=True, hide_index=True)
         else:
             st.info("Log some listening sessions to see your top albums here!")
