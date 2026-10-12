@@ -817,10 +817,29 @@ def ratingWidget(row, place):
                 on_change=saveRating, args=(row["ID"], widgetKey))
 
 
-def pickCandidates(inventoryDf, playsDf, genres=None, maxMinutes=None, today=None):
+def decadeOf(year):
+    # 1997 -> "1990s"; None when the year is missing or not a number
+    year = pd.to_numeric(year, errors="coerce")
+    return f"{int(year // 10 * 10)}s" if pd.notna(year) and year > 0 else None
+
+
+def lastPlayedArtist(inventoryDf, playsDf):
+    # Artist of the most recently logged play that is linked to a record, or None
+    if playsDf.empty or inventoryDf.empty:
+        return None
+    linked = playsDf.dropna(subset=["VinylID", "When"])
+    if linked.empty:
+        return None
+    lastId = int(linked.loc[linked["When"].idxmax(), "VinylID"])
+    match = inventoryDf[inventoryDf["ID"].astype("int64") == lastId]
+    return str(match.iloc[0]["Artist"]) if not match.empty else None
+
+
+def pickCandidates(inventoryDf, playsDf, genres=None, maxMinutes=None, today=None, decades=None, minRating=None,
+                   avoidArtists=None):
     # Records worth playing next, each with a weight: the longer a record has waited the likelier it comes up,
-    # never-played ones most of all, and higher ratings tip the scale. Records played in the last 3 days sit out
-    # unless nothing else is left.
+    # never-played ones most of all, and higher ratings tip the scale. Records played in the last 3 days, and
+    # records by the artists in avoidArtists (the one you just played or skipped), sit out unless nothing else is left.
     dusty = dustiestRecords(inventoryDf, playsDf, today)[["ID", "LastPlayed", "DaysAgo"]]
     pool = inventoryDf.merge(dusty, on="ID")
     if genres:
@@ -828,9 +847,18 @@ def pickCandidates(inventoryDf, playsDf, genres=None, maxMinutes=None, today=Non
     if maxMinutes:
         minutes = pd.to_numeric(pool["DurationMins"], errors="coerce")
         pool = pool[minutes.isna() | (minutes <= 0) | (minutes <= maxMinutes)]
+    if decades:
+        pool = pool[pool["Year"].map(decadeOf).isin(decades)] if "Year" in pool else pool.iloc[0:0]
+    if minRating:
+        pool = pool[[(ratingOf(row) or 0) >= minRating for _, row in pool.iterrows()]]
     rested = pool[pool["DaysAgo"].isna() | (pool["DaysAgo"] >= 3)]
     if not rested.empty:
         pool = rested
+    if avoidArtists:
+        avoid = {str(artist).strip().lower() for artist in avoidArtists if artist}
+        varied = pool[~pool["Artist"].astype(str).str.strip().str.lower().isin(avoid)]
+        if not varied.empty:
+            pool = varied
     if pool.empty:
         return pool
 
@@ -1289,16 +1317,24 @@ if section == "play":
         st.info("Add some records first, then come back for a suggestion.")
     else:
         lengthLimits = {"Any length": None, "Up to 30 min": 30, "Up to 45 min": 45, "Up to 60 min": 60}
+        ratingLimits = {"Any rating": None, "3 stars and up": 3, "4 stars and up": 4, "5 stars only": 5}
         colPickGenre, colPickLength = st.columns(2)
         pickGenres = colPickGenre.multiselect("Genre", vinylData["Genre"].dropna().unique(), placeholder="Any genre",
                                               key="pickGenres")
         pickLength = colPickLength.selectbox("Time you have", list(lengthLimits), key="pickLength")
-        candidates = pickCandidates(vinylData, playsData, pickGenres, lengthLimits[pickLength])
+        colPickDecade, colPickRating = st.columns(2)
+        decadeChoices = sorted({d for d in vinylData.get("Year", pd.Series(dtype=object)).map(decadeOf) if d})
+        pickDecades = colPickDecade.multiselect("Decade", decadeChoices, placeholder="Any decade", key="pickDecades")
+        pickRating = colPickRating.selectbox("Rating", list(ratingLimits), key="pickRating")
 
         # The pick stays put across reruns until you ask for another one or change the filters
-        pickFilters = (tuple(pickGenres), pickLength)
+        pickFilters = (tuple(pickGenres), pickLength, tuple(pickDecades), pickRating)
         if st.session_state.get("pickFilters") != pickFilters:
-            st.session_state.update(pickFilters=pickFilters, pickId=None, pickSkipped=[])
+            st.session_state.update(pickFilters=pickFilters, pickId=None, pickSkipped=[], pickSkippedArtist=None)
+        # Skip the artist you played last and the one you just passed on, so two picks in a row differ
+        avoidArtists = [lastPlayedArtist(vinylData, playsData), st.session_state.get("pickSkippedArtist")]
+        candidates = pickCandidates(vinylData, playsData, pickGenres, lengthLimits[pickLength],
+                                    decades=pickDecades, minRating=ratingLimits[pickRating], avoidArtists=avoidArtists)
         fresh = candidates[~candidates["ID"].isin(st.session_state["pickSkipped"])] if not candidates.empty else candidates
         if not candidates.empty and fresh.empty:
             st.session_state["pickSkipped"] = []  # every record has been offered once; start over
@@ -1309,7 +1345,7 @@ if section == "play":
                                           if freshIds else None)
 
         if st.session_state["pickId"] is None:
-            st.markdown('<div class="vc-empty">Nothing matches. Try another genre or more time.</div>',
+            st.markdown('<div class="vc-empty">Nothing matches. Try fewer filters or more time.</div>',
                         unsafe_allow_html=True)
         else:
             pick = candidates[candidates["ID"] == st.session_state["pickId"]].iloc[0]
@@ -1329,6 +1365,7 @@ if section == "play":
                             pick["ID"])
                 if colAnother.button("🔀 Another one", key="pickAnother"):
                     st.session_state["pickSkipped"].append(st.session_state["pickId"])
+                    st.session_state["pickSkippedArtist"] = str(pick["Artist"])
                     st.session_state["pickId"] = None
                     st.rerun()
             st.caption(f"Picked from {len(candidates)} records. Ones you have not played for a while come up more "
