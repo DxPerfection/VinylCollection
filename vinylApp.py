@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, available_timezones
 import json
 import base64
-from supabase import create_client, Client
+import secrets
+from supabase import create_client, Client, ClientOptions
 import re
 import html
 import urllib.parse
@@ -287,16 +288,21 @@ def fetchReleaseDetails(releaseId):
 
 
 # --- SUPABASE DATABASE ---
-@st.cache_resource
-def initSupabase() -> Client:
+def newSupabaseClient() -> Client:
     url = getSecretsData("supabase_url")
     key = getSecretsData("supabase_key")
 
     if url and key:
-        return create_client(url, key)
+        # Each visit gets its own client, so the sign-in it carries is never shared with another visitor
+        return create_client(url, key, ClientOptions(flow_type="pkce", auto_refresh_token=False))
     else:
         st.error("Supabase credentials are missing.")
         st.stop()
+
+
+def initSupabase() -> Client:
+    # The signed-in client for this visit; every read and write goes through it so Row Level Security knows it is you
+    return st.session_state["supabase"]
 
 
 orderColumns = {"Inventory": "ID", "ListeningHistory": "id", "Wantlist": "id"}
@@ -863,6 +869,162 @@ def moveWantToCollection(item):
     return record
 
 
+# --- SIGN-IN ---
+# Sign-in goes through Supabase Auth with GitHub. Only the GitHub account below gets in, and the database's
+# Row Level Security rules (migrations/003_owner_only.sql) check the same account on every request.
+ownerGithubId = str(getSecretsData("github_owner_id") or "26037275")  # DxPerfection
+signInCookie = "vc_session"
+signInDays = 30
+signInParams = ("signin", "code", "error", "error_code", "error_description")
+
+
+@st.cache_resource
+def pendingSignIns():
+    # Sign-ins waiting for GitHub to send you back. The page reloads on the way back, so the client that started
+    # the sign-in (and its one-time code verifier) waits here on the server, under a random key.
+    return {}
+
+
+def appUrl():
+    configured = getSecretsData("app_url")
+    if configured:
+        return configured.rstrip("/")
+    parts = urllib.parse.urlsplit(st.context.url or "")
+    return f"{parts.scheme}://{parts.netloc}{parts.path}".rstrip("/")
+
+
+def githubLogin(user):
+    for identity in user.identities or []:
+        if identity.provider == "github":
+            return (identity.identity_data or {}).get("user_name")
+    return None
+
+
+def isOwner(user):
+    # Checked against what GitHub reported, which you cannot edit afterwards (unlike the profile metadata)
+    for identity in user.identities or []:
+        data = identity.identity_data or {}
+        if identity.provider == "github" and ownerGithubId in (str(identity.id), str(data.get("provider_id")),
+                                                               str(data.get("sub"))):
+            return True
+    return False
+
+
+def signInLink():
+    if "signInUrl" not in st.session_state:
+        pending = pendingSignIns()
+        for oldKey in [key for key, (_, startedAt) in pending.items() if time.time() - startedAt > 900]:
+            pending.pop(oldKey, None)
+        signInKey = secrets.token_urlsafe(16)
+        client = newSupabaseClient()
+        response = client.auth.sign_in_with_oauth(
+            {"provider": "github", "options": {"redirect_to": f"{appUrl()}/?signin={signInKey}"}})
+        pending[signInKey] = (client, time.time())
+        st.session_state["signInUrl"] = response.url
+    return st.session_state["signInUrl"]
+
+
+def finishSignIn():
+    # GitHub (through Supabase) sends you back with ?signin=<key>&code=<code>; trade the code for a session
+    params = {name: st.query_params.get(name) for name in signInParams}
+    for name in signInParams:
+        st.query_params.pop(name, None)
+    pending = pendingSignIns().pop(params["signin"], None) if params["signin"] else None
+    if params["error_description"] or params["error"]:
+        return None, f"GitHub sign-in did not finish: {params['error_description'] or params['error']}"
+    if not params["code"] or pending is None:
+        return None, "That sign-in link has expired. Please sign in again."
+    client = pending[0]
+    try:
+        client.auth.exchange_code_for_session({"auth_code": params["code"]})
+        return client, None
+    except Exception as e:
+        return None, f"Sign-in failed: {e}"
+
+
+def restoreSignIn():
+    # The phone remembers your sign-in in a cookie for a while, so a fresh page load does not ask again
+    savedToken = st.context.cookies.get(signInCookie)
+    if not savedToken or st.session_state.get("cookieTried"):
+        return None
+    st.session_state["cookieTried"] = True
+    client = newSupabaseClient()
+    try:
+        client.auth.refresh_session(savedToken)
+        return client
+    except Exception:
+        return None
+
+
+def writeSignInCookie(value):
+    # Supabase hands out a new refresh token each time one is used, so the cookie is rewritten whenever it changes
+    maxAge = signInDays * 86400 if value else 0
+    secure = "; Secure" if appUrl().startswith("https") else ""
+    st.html(f"<script>document.cookie = '{signInCookie}={value}; Max-Age={maxAge}; Path=/; SameSite=Lax{secure}';"
+            "</script>", unsafe_allow_javascript=True, width=1)
+    st.session_state["cookieValue"] = value
+
+
+def signOut():
+    client = st.session_state.pop("supabase", None)
+    if client:
+        try:
+            client.auth.sign_out({"scope": "local"})
+        except Exception:
+            pass
+    for name in ("signInUrl", "signedInAs"):
+        st.session_state.pop(name, None)
+    st.session_state["cookieTried"] = True  # the saved sign-in was just ended, so do not reuse it
+    st.session_state["cookieValue"] = None  # the sign-in page clears the cookie
+
+
+def showSignInPage(message=None):
+    st.markdown(
+        '<div class="vc-hero"><div class="vc-disc"></div><div><h1>Vinyl Collection</h1>'
+        '<p>Sign in to open your records.</p></div></div>',
+        unsafe_allow_html=True)
+    if message:
+        st.warning(message)
+    try:
+        st.link_button("Sign in with GitHub", signInLink(), type="primary")
+    except Exception as e:
+        st.error(f"GitHub sign-in is not available yet: {e}")
+    if st.context.cookies.get(signInCookie) and st.session_state.get("cookieValue") is None:
+        writeSignInCookie("")
+    st.stop()
+
+
+def requireSignIn():
+    message = None
+    client = st.session_state.get("supabase")
+    if any(name in st.query_params for name in ("signin", "code", "error")):
+        client, message = finishSignIn()
+        st.session_state.pop("signInUrl", None)
+    if client is None:
+        client = restoreSignIn()
+    session = None
+    if client is not None:
+        try:
+            session = client.auth.get_session()  # refreshes the session when it is about to run out
+        except Exception:
+            session = None
+    if session is None:
+        st.session_state.pop("supabase", None)
+        showSignInPage(message)
+    if not isOwner(session.user):
+        login = githubLogin(session.user) or "that account"
+        st.session_state["supabase"] = client
+        signOut()
+        showSignInPage(f"You signed in as {login}, but this collection belongs to someone else.")
+    st.session_state["supabase"] = client
+    st.session_state["signedInAs"] = githubLogin(session.user) or "GitHub"
+    if st.session_state.get("cookieValue") != session.refresh_token:
+        writeSignInCookie(session.refresh_token)
+
+
+requireSignIn()
+
+
 # --- SIDEBAR & REFRESH ---
 if "displayTz" not in st.session_state:
     st.session_state["displayTz"] = defaultTimezone()
@@ -873,6 +1035,10 @@ with st.sidebar:
     st.header("Settings")
     if st.button("🔄 Refresh Data"):
         st.cache_data.clear()
+        st.rerun()
+    st.caption(f"Signed in as **{st.session_state['signedInAs']}**")
+    if st.button("Sign out"):
+        signOut()
         st.rerun()
     st.radio("Layout", ["Phone", "Web"], key="viewLayout", horizontal=True,
              help="Phone fits a narrow screen. Web is the wide desktop layout.",
