@@ -6,7 +6,8 @@ import streamlit as st
 from vinyl.apis import fetchReleaseDetails, fetchSpotifyData, searchDiscogsApi
 from vinyl.db import addNewVinyl, addWant, migrationHint
 from vinyl.stats import isDuplicate
-from vinyl.ui import saveAndRefresh
+from vinyl.genres import knownGenres
+from vinyl.ui import genrePicker, saveAndRefresh
 
 try:
     from PIL import Image
@@ -69,8 +70,7 @@ def render(app):
             inputDuration = st.number_input("Duration (Mins)", min_value=0, value=45, key="manDur")
             inputTracklist = st.text_area("Tracklist (Optional, format: Song1 | Song2)", key="manTrack")
         with colB:
-            inputGenre = st.selectbox("Genre", ["Rock", "Jazz", "Pop", "Electronic", "Classical", "Hip-Hop", "Metal"],
-                                      key="manGenre")
+            inputGenre = genrePicker("Genre", "", knownGenres(vinylData), "manGenre")
             inputSubGenre = st.text_input("Sub-Genre (Optional)", key="manSubGenre")
             inputUrl = st.text_input("Cover Image URL", key="manUrl")
             inputStatus = st.selectbox("Condition", ["New", "Used", "Mint", "Fair"], key="manCondition")
@@ -166,7 +166,8 @@ def render(app):
 
                     cGen, cSubGen = st.columns(2)
                     with cGen:
-                        finalGenre = st.text_input("Genre", value=parsedGenre, key=f"apiGenre_{releaseId}")
+                        finalGenre = genrePicker("Genre", parsedGenre, knownGenres(vinylData),
+                                                 f"apiGenre_{releaseId}")
                     with cSubGen:
                         finalSubGenre = st.text_input("Sub-Genre", value=mergedData["subGenre"],
                                                       key=f"apiSubGenre_{releaseId}")

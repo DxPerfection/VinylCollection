@@ -26,13 +26,16 @@ def initSupabase() -> Client:
 
 
 orderColumns = {"Inventory": "ID", "ListeningHistory": "id", "Wantlist": "id"}
-# Columns for a table with no rows yet. Rating is added only when the database has it (migration 002).
+# Columns for a table with no rows yet. Rating (migration 002) and the want list's Priority and Note (004) are added
+# only when the database has them.
 emptyColumns = {
     "Inventory": ["ID", "Artist", "AlbumName", "Genre", "SubGenre", "Year", "CoverURL", "Condition", "DurationMins",
                   "Tracklist"],
     "ListeningHistory": ["id", "Date", "AlbumName", "DurationMins", "VinylID"],
     "Wantlist": ["id", "Artist", "AlbumName", "Year", "Genre", "CoverURL", "DiscogsID", "AddedAt"],
 }
+wantExtrasHint = ("Run migrations/004_wantlist_priority_and_note.sql in the Supabase SQL editor to add priorities "
+                  "and notes.")
 migrationHint = "Run migrations/002_ratings_and_wantlist.sql in the Supabase SQL editor to turn this on."
 
 
@@ -66,6 +69,8 @@ def fetchData(tableName, optional=False):
             columns = emptyColumns[tableName]
             if tableName == "Inventory" and columnExists(supabase, "Inventory", "Rating"):
                 columns = columns + ["Rating"]
+            if tableName == "Wantlist" and columnExists(supabase, "Wantlist", "Priority"):
+                columns = columns + ["Priority", "Note"]
             return pd.DataFrame(columns=columns)
         return df
     except Exception as e:
@@ -93,6 +98,11 @@ def deleteVinyl(vinylId):
 def addWant(wantDict):
     supabase = initSupabase()
     supabase.table("Wantlist").insert(wantDict).execute()
+
+
+def updateWant(wantId, updateDataDict):
+    supabase = initSupabase()
+    supabase.table("Wantlist").update(updateDataDict).eq("id", int(wantId)).execute()
 
 
 def deleteWant(wantId):

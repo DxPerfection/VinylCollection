@@ -8,6 +8,7 @@ import streamlit as st
 from vinyl.clock import localNow
 from vinyl.config import accentColor
 from vinyl.db import logListeningSession, updateVinyl
+from vinyl.genres import canonicalGenre
 from vinyl.stats import formatMinutes, ratingOf
 from vinyl.styles import placeholderCover
 
@@ -139,3 +140,17 @@ def showTopStats(app):
              statCard("Listening time", formatMinutes(totalMinutes), f"{len(playsData)} plays"),
              statCard("Albums played", albumsPlayed, f"of {len(vinylData)} in the collection"),
              statCard("Favorite genre", topGenre, f"{topGenreCount} records")])
+
+
+otherGenre = "Other…"
+
+
+def genrePicker(label, current, known, key, column=None):
+    # A pick-list of the genres already in use, with Other… for a new one. Returns the genre to save.
+    place = column or st
+    current = canonicalGenre(current, known)
+    choices = known + ([current] if current and current not in known else []) + [otherGenre]
+    picked = place.selectbox(label, choices, index=choices.index(current) if current else 0, key=key)
+    if picked != otherGenre:
+        return picked
+    return canonicalGenre(place.text_input("New genre", key=f"{key}_new"), known)

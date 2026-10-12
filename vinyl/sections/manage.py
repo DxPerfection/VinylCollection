@@ -8,7 +8,8 @@ from vinyl.backup import backupCsv, planPlayRestore, planRecordRestore, readBack
 from vinyl.clock import localNow
 from vinyl.db import deleteVinyl, fetchData, insertInChunks, linkPastPlays, migrationHint, updateVinyl
 from vinyl.stats import ratingOf
-from vinyl.ui import coverHtml, isPhone, saveAndRefresh
+from vinyl.genres import knownGenres
+from vinyl.ui import coverHtml, genrePicker, isPhone, saveAndRefresh
 
 
 skipLabels = {"have": "already in the app", "sameAlbum": "same album as one already in the app",
@@ -83,7 +84,8 @@ def render(app):
 
                 cGenMng, cSubGenMng = st.columns(2)
                 with cGenMng:
-                    updGenre = st.text_input("Genre", value=targetRow.get("Genre", ""), key=f"updGen_{selectedId}")
+                    updGenre = genrePicker("Genre", targetRow.get("Genre", ""), knownGenres(vinylData),
+                                           f"updGen_{selectedId}")
                 with cSubGenMng:
                     currentSubGenre = targetRow.get("SubGenre", "")
                     if pd.isna(currentSubGenre):
