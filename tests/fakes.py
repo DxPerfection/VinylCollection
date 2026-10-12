@@ -24,7 +24,10 @@ sampleTables = {
     ],
     "Wantlist": [
         {"id": 1, "Artist": "Nina Simone", "AlbumName": "Pastel Blues", "Year": "1965", "Genre": "Jazz", "CoverURL": "",
-         "DiscogsID": None, "AddedAt": "2026-10-01T10:00:00+00:00"},
+         "DiscogsID": None, "AddedAt": "2026-10-01T10:00:00+00:00", "Priority": 2, "Note": None},
+        {"id": 2, "Artist": "Boards of Canada", "AlbumName": "Geogaddi", "Year": "2002", "Genre": "Electronic",
+         "CoverURL": "", "DiscogsID": 123, "AddedAt": "2026-10-05T10:00:00+00:00", "Priority": 1,
+         "Note": "Record fair in Kadıköy"},
     ],
 }
 

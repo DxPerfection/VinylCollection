@@ -50,14 +50,21 @@ def render(app):
                     use_container_width=True)
 
             with colChart4:
-                st.caption("Most listened albums")
+                colAlbumsTitle, colAlbumsBy = st.columns([1, 1], vertical_alignment="center")
+                colAlbumsTitle.caption("Most listened albums")
+                # Times played or minutes listened; the other one stays in the tooltip
+                albumsBy = colAlbumsBy.segmented_control("Rank by", ["Plays", "Minutes"], default="Plays",
+                                                         key="topAlbumsBy", label_visibility="collapsed") or "Plays"
+                otherMeasure = "Minutes" if albumsBy == "Plays" else "Plays"
                 topListened = playsData.groupby("Album").agg(
                     Minutes=("DurationMins", "sum"), Plays=("Album", "size")).reset_index()
-                topListened = topListened.sort_values(by="Minutes", ascending=False).head(8)
+                topListened = topListened.sort_values(by=[albumsBy, otherMeasure], ascending=False).head(8)
                 st.altair_chart(
-                    barChart(topListened, "Album", "Minutes", "Minutes listened").encode(
-                        y=alt.Y("Album:N", sort="-x", title=None, axis=alt.Axis(labelLimit=220)),
-                        tooltip=["Album", "Minutes", "Plays"]),
+                    barChart(topListened, "Album", albumsBy,
+                             "Times played" if albumsBy == "Plays" else "Minutes listened").encode(
+                        y=alt.Y("Album:N", sort=list(topListened["Album"]), title=None,
+                                axis=alt.Axis(labelLimit=220)),
+                        tooltip=["Album", "Plays", "Minutes"]),
                     use_container_width=True)
 
             currentStreak, longestStreak = listeningStreaks(playsData)

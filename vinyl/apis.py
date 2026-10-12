@@ -118,3 +118,23 @@ def fetchReleaseDetails(releaseId):
         return (totalSeconds // 60), tracklistString, subGenreString
     except Exception:
         return 0, "", ""
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def fetchMarketplaceStats(releaseId):
+    # Lowest price on the Discogs marketplace and how many copies are for sale: (price, currency, count),
+    # or None when Discogs cannot say. Kept for six hours so the want list opens quickly.
+    apiToken = getSecretsData("discogs_token")
+    if not apiToken:
+        return None
+    currency = getSecretsData("discogs_currency") or "EUR"
+    apiUrl = f"https://api.discogs.com/marketplace/stats/{int(releaseId)}"
+    try:
+        apiResponse = requests.get(apiUrl, headers={"User-Agent": "VinylCollectionApp/3.0"},
+                                   params={"curr_abbr": currency, "token": apiToken}, timeout=10)
+        apiResponse.raise_for_status()
+        responseData = apiResponse.json()
+    except Exception:
+        return None
+    lowest = responseData.get("lowest_price") or {}
+    return lowest.get("value"), lowest.get("currency") or currency, int(responseData.get("num_for_sale") or 0)
