@@ -873,8 +873,7 @@ def moveWantToCollection(item):
 # Sign-in goes through Supabase Auth with GitHub. Only the GitHub account below gets in, and the database's
 # Row Level Security rules (migrations/003_owner_only.sql) check the same account on every request.
 ownerGithubId = str(getSecretsData("github_owner_id") or "26037275")  # DxPerfection
-signInCookie = "vc_session"
-signInDays = 30
+signInStoreKey = "signInStore"
 signInParams = ("signin", "code", "error", "error_code", "error_description")
 
 
@@ -942,27 +941,51 @@ def finishSignIn():
         return None, f"Sign-in failed: {e}"
 
 
+# The browser keeps your sign-in in its own storage, so a fresh page load does not ask again. Reading and writing
+# happen in the browser and the value comes back to Python as component state. (A cookie did not work: the hosted
+# app never received it.)
+signInStore = st.components.v2.component("sign_in_store", js="""
+export default function(component) {
+    const { data, setStateValue } = component;
+    try {
+        if (data.save !== null) {
+            if (data.save) localStorage.setItem("vc_session", data.save); else localStorage.removeItem("vc_session");
+        }
+        const saved = localStorage.getItem("vc_session") || "";
+        // Only report a change; reporting the same value again would rerun the app in a loop
+        if (saved !== data.known) setStateValue("saved", saved);
+    } catch (e) {
+        if (data.known !== "") setStateValue("saved", "");
+    }
+}
+""")
+
+
+def savedSignIn():
+    # None until the browser has reported back, which it does right after the first page load
+    return (st.session_state.get(signInStoreKey) or {}).get("saved")
+
+
+def keepSignIn(token):
+    # token: the sign-in to store, "" to forget it, or None to leave the browser's copy alone.
+    # Supabase hands out new tokens when the old ones run out, so the stored copy is replaced when it changes.
+    signInStore(key=signInStoreKey, data={"save": token, "known": savedSignIn()}, on_saved_change=lambda: None)
+
+
 def restoreSignIn():
-    # The phone remembers your sign-in in a cookie for a while, so a fresh page load does not ask again
-    savedToken = st.context.cookies.get(signInCookie)
-    if not savedToken or st.session_state.get("cookieTried"):
+    savedToken = savedSignIn()
+    if not savedToken or savedToken == st.session_state.get("tokenTried"):
         return None
-    st.session_state["cookieTried"] = True
+    st.session_state["tokenTried"] = savedToken
     client = newSupabaseClient()
     try:
-        client.auth.refresh_session(savedToken)
+        # Saved as "<access token> <refresh token>". The refresh token is only spent once the access token has run
+        # out (after an hour), so most page loads leave the saved copy as it is.
+        accessToken, refreshToken = savedToken.split(" ")
+        client.auth.set_session(accessToken, refreshToken)
         return client
     except Exception:
         return None
-
-
-def writeSignInCookie(value):
-    # Supabase hands out a new refresh token each time one is used, so the cookie is rewritten whenever it changes
-    maxAge = signInDays * 86400 if value else 0
-    secure = "; Secure" if appUrl().startswith("https") else ""
-    st.html(f"<script>document.cookie = '{signInCookie}={value}; Max-Age={maxAge}; Path=/; SameSite=Lax{secure}';"
-            "</script>", unsafe_allow_javascript=True, width=1)
-    st.session_state["cookieValue"] = value
 
 
 def signOut():
@@ -972,10 +995,9 @@ def signOut():
             client.auth.sign_out({"scope": "local"})
         except Exception:
             pass
-    for name in ("signInUrl", "signedInAs"):
+    for name in ("signInUrl", "signedInAs", "signInToken"):
         st.session_state.pop(name, None)
-    st.session_state["cookieTried"] = True  # the saved sign-in was just ended, so do not reuse it
-    st.session_state["cookieValue"] = None  # the sign-in page clears the cookie
+    st.session_state["tokenTried"] = savedSignIn()  # the saved sign-in was just ended, so do not reuse it
 
 
 def showSignInPage(message=None):
@@ -989,8 +1011,8 @@ def showSignInPage(message=None):
         st.link_button("Sign in with GitHub", signInLink(), type="primary")
     except Exception as e:
         st.error(f"GitHub sign-in is not available yet: {e}")
-    if st.context.cookies.get(signInCookie) and st.session_state.get("cookieValue") is None:
-        writeSignInCookie("")
+    # A saved sign-in that did not work (or was just signed out) is forgotten
+    keepSignIn("" if savedSignIn() else None)
     st.stop()
 
 
@@ -1010,16 +1032,20 @@ def requireSignIn():
             session = None
     if session is None:
         st.session_state.pop("supabase", None)
-        showSignInPage(message)
+        # Kept for the next run too, since the browser's report on the saved sign-in reruns the page right away
+        if message:
+            st.session_state["signInMessage"] = message
+        showSignInPage(st.session_state.get("signInMessage"))
     if not isOwner(session.user):
         login = githubLogin(session.user) or "that account"
         st.session_state["supabase"] = client
         signOut()
-        showSignInPage(f"You signed in as {login}, but this collection belongs to someone else.")
+        st.session_state["signInMessage"] = f"You signed in as {login}, but this collection belongs to someone else."
+        showSignInPage(st.session_state["signInMessage"])
+    st.session_state.pop("signInMessage", None)
     st.session_state["supabase"] = client
     st.session_state["signedInAs"] = githubLogin(session.user) or "GitHub"
-    if st.session_state.get("cookieValue") != session.refresh_token:
-        writeSignInCookie(session.refresh_token)
+    st.session_state["signInToken"] = f"{session.access_token} {session.refresh_token}"
 
 
 requireSignIn()
@@ -1040,6 +1066,7 @@ with st.sidebar:
     if st.button("Sign out"):
         signOut()
         st.rerun()
+    keepSignIn(st.session_state["signInToken"])
     st.radio("Layout", ["Phone", "Web"], key="viewLayout", horizontal=True,
              help="Phone fits a narrow screen. Web is the wide desktop layout.",
              on_change=lambda: st.query_params.update(layout=st.session_state["viewLayout"].lower()))
