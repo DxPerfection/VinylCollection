@@ -2,6 +2,7 @@
 from pathlib import Path
 
 import pytest
+import streamlit as st
 from streamlit.testing.v1 import AppTest
 
 from fakes import FakeSupabase
@@ -11,6 +12,7 @@ sectionNames = ["collection", "play", "log", "wants", "add", "manage", "stats"]
 
 
 def openApp(section, layout, supabase=None):
+    st.cache_data.clear()  # fetchData is cached by table name, so one test's tables would leak into the next
     app = AppTest.from_file(appFile, default_timeout=30)
     app.session_state["supabase"] = supabase or FakeSupabase()
     app.session_state["section"] = section
