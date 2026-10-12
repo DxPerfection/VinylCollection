@@ -1001,16 +1001,21 @@ def signOut():
 
 
 def showSignInPage(message=None):
+    # Until the browser says whether it has a saved sign-in (a moment after the page opens), show a neutral
+    # opening screen instead of flashing the sign-in button
+    checking = savedSignIn() is None and not message
+    subtitle = "Opening your records…" if checking else "Sign in to open your records."
     st.markdown(
         '<div class="vc-hero"><div class="vc-disc"></div><div><h1>Vinyl Collection</h1>'
-        '<p>Sign in to open your records.</p></div></div>',
+        f'<p>{subtitle}</p></div></div>',
         unsafe_allow_html=True)
     if message:
         st.warning(message)
-    try:
-        st.link_button("Sign in with GitHub", signInLink(), type="primary")
-    except Exception as e:
-        st.error(f"GitHub sign-in is not available yet: {e}")
+    if not checking:
+        try:
+            st.link_button("Sign in with GitHub", signInLink(), type="primary")
+        except Exception as e:
+            st.error(f"GitHub sign-in is not available yet: {e}")
     # A saved sign-in that did not work (or was just signed out) is forgotten
     keepSignIn("" if savedSignIn() else None)
     st.stop()
