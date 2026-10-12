@@ -4,6 +4,7 @@ import requests
 import time
 import io
 import math
+import random
 from collections import Counter
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, available_timezones
@@ -101,6 +102,18 @@ st.markdown("""
     .vc-empty {text-align: center; padding: 56px 20px; border: 1px dashed var(--vc-border); border-radius: 16px;
         color: var(--vc-muted);}
     .tracklist-text {font-size: 14px; color: var(--vc-muted); margin-bottom: 2px;}
+    .vc-meta {color: var(--vc-muted); font-size: 0.8rem; margin-bottom: 4px;}
+    .vc-reason {color: var(--vc-accent); font-size: 0.98rem; margin: 8px 0 16px 0;}
+    .vc-pick-cover {max-width: 320px;}
+
+    /* Navigation and compact stat grid */
+    .st-key-nav {margin: 2px 0 14px 0;}
+    .vc-stat-grid {display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px;}
+    .vc-stat-grid .vc-stat {min-height: 0; padding: 10px 14px; border-radius: 12px;}
+    .vc-stat-grid .vc-stat-label {font-size: 0.68rem;}
+    .vc-stat-grid .vc-stat-value {font-size: 1.35rem;}
+    .vc-stat-grid .vc-stat-value-sm {font-size: 1.05rem;}
+    .vc-stat-grid .vc-stat-sub {font-size: 0.72rem;}
 
     /* Controls */
     div[data-testid="stElementContainer"]:has(> div[data-testid="stButton"]),
@@ -110,6 +123,29 @@ st.markdown("""
     @media (max-width: 640px) {.vc-hero h1 {font-size: 1.9rem;} .vc-disc {width: 56px; height: 56px;}}
 </style>
 """, unsafe_allow_html=True)
+
+# Extra rules for the phone layout, added only when it is on
+phoneCss = """
+<style>
+    .block-container {padding: 1rem 0.8rem 3rem 0.8rem;}
+    .vc-hero {gap: 12px; margin-bottom: 0.9rem;}
+    .vc-hero h1 {font-size: 1.6rem;}
+    .vc-hero p {display: none;}
+    .vc-disc {width: 42px; height: 42px;}
+    /* Columns inside these containers stay side by side instead of stacking */
+    [class*="st-key-row_"] [data-testid="stHorizontalBlock"] {flex-wrap: nowrap; gap: 0.6rem;}
+    [class*="st-key-row_"] [data-testid="stColumn"] {min-width: 0 !important; width: auto !important;}
+    [class*="st-key-card_"] {padding: 8px; border-radius: 12px;}
+    [class*="st-key-card_"]:hover {transform: none;}
+    .vc-title {font-size: 0.9rem; margin-top: 8px;}
+    .vc-artist {font-size: 0.8rem; margin-bottom: 2px;}
+    .vc-title-lg {font-size: 1.15rem;}
+    .vc-last {font-size: 0.74rem; margin-bottom: 6px;}
+    .vc-hist {font-size: 0.86rem; padding: 2px 0;}
+    .vc-pick-cover {max-width: 100%;}
+    div[data-testid="stButton"] > button {min-height: 2.2rem; padding: 0.2rem 0.6rem;}
+</style>
+"""
 
 # Inline vinyl record shown when a release has no cover image
 placeholderCover = "data:image/svg+xml;utf8," + urllib.parse.quote(
@@ -263,7 +299,15 @@ def initSupabase() -> Client:
         st.stop()
 
 
-orderColumns = {"Inventory": "ID", "ListeningHistory": "id"}
+orderColumns = {"Inventory": "ID", "ListeningHistory": "id", "Wantlist": "id"}
+# Columns for a table with no rows yet. Rating is added only when the database has it (migration 002).
+emptyColumns = {
+    "Inventory": ["ID", "Artist", "AlbumName", "Genre", "SubGenre", "Year", "CoverURL", "Condition", "DurationMins",
+                  "Tracklist"],
+    "ListeningHistory": ["id", "Date", "AlbumName", "DurationMins", "VinylID"],
+    "Wantlist": ["id", "Artist", "AlbumName", "Year", "Genre", "CoverURL", "DiscogsID", "AddedAt"],
+}
+migrationHint = "Run migrations/002_ratings_and_wantlist.sql in the Supabase SQL editor to turn this on."
 
 
 def fetchAllRows(supabase, tableName):
@@ -278,21 +322,29 @@ def fetchAllRows(supabase, tableName):
         rows.extend(page)
 
 
+def columnExists(supabase, tableName, columnName):
+    try:
+        supabase.table(tableName).select(columnName).range(0, 0).execute()
+        return True
+    except Exception:
+        return False
+
+
 @st.cache_data(ttl=600)
-def fetchData(tableName):
+def fetchData(tableName, optional=False):
+    # An optional table returns None when it cannot be read, such as before its migration has been run
     try:
         supabase = initSupabase()
         df = pd.DataFrame(fetchAllRows(supabase, tableName))
-
         if df.empty:
-            if tableName == "Inventory":
-                df = pd.DataFrame(
-                    columns=["ID", "Artist", "AlbumName", "Genre", "SubGenre", "Year", "CoverURL", "Condition",
-                             "DurationMins", "Tracklist"])
-            elif tableName == "ListeningHistory":
-                df = pd.DataFrame(columns=["id", "Date", "AlbumName", "DurationMins", "VinylID"])
+            columns = emptyColumns[tableName]
+            if tableName == "Inventory" and columnExists(supabase, "Inventory", "Rating"):
+                columns = columns + ["Rating"]
+            return pd.DataFrame(columns=columns)
         return df
     except Exception as e:
+        if optional:
+            return None
         st.error(f"Data could not be fetched from database: {e}")
         return pd.DataFrame()
 
@@ -312,6 +364,16 @@ def deleteVinyl(vinylId):
     supabase.table("Inventory").delete().eq("ID", vinylId).execute()
 
 
+def addWant(wantDict):
+    supabase = initSupabase()
+    supabase.table("Wantlist").insert(wantDict).execute()
+
+
+def deleteWant(wantId):
+    supabase = initSupabase()
+    supabase.table("Wantlist").delete().eq("id", int(wantId)).execute()
+
+
 def defaultTimezone():
     # A timezone in the page address wins, then the browser's, then the fallback
     browserTimezone = getattr(st.context, "timezone", None)
@@ -319,6 +381,15 @@ def defaultTimezone():
         if candidate in available_timezones():
             return candidate
     return fallbackTimezone
+
+
+def defaultLayout():
+    # The page address wins (?layout=phone), then the device: browsers that report a phone get the phone layout
+    choice = str(st.query_params.get("layout", "")).capitalize()
+    if choice in ("Phone", "Web"):
+        return choice
+    userAgent = getattr(st.context, "headers", {}).get("User-Agent", "") or ""
+    return "Phone" if re.search(r"Mobile|Android|iPhone", userAgent) else "Web"
 
 
 def displayTimezone():
@@ -456,10 +527,21 @@ def pillsHtml(row):
     return f'<div class="vc-pills">{"".join(pills)}</div>'
 
 
-def lastPlayedHtml(lastPlayed):
+def lastPlayedHtml(lastPlayed, short=False):
     if pd.isna(lastPlayed):
         return '<div class="vc-last">Not played yet</div>'
+    if short:
+        return f'<div class="vc-last">▶ {lastPlayed.strftime("%d %b, %H:%M")}</div>'
     return f'<div class="vc-last">▶ Last played {lastPlayed.strftime("%d %b %Y, %H:%M")}</div>'
+
+
+def metaHtml(row):
+    # One compact line of year and length, used where pills would not fit
+    parts = [esc(row.get("Year"))] if esc(row.get("Year")) else []
+    duration = pd.to_numeric(row.get("DurationMins"), errors="coerce")
+    if pd.notna(duration) and duration > 0:
+        parts.append(f"{int(duration)} min")
+    return f'<div class="vc-meta">{" · ".join(parts)}</div>'
 
 
 def statCard(label, value, sub=""):
@@ -531,6 +613,9 @@ def planRecordRestore(fileDf, currentDf):
             minutes = toNumber(raw.get("DurationMins"))
             if minutes is not None:
                 row["DurationMins"] = minutes
+            rating = toNumber(raw.get("Rating"))
+            if "Rating" in currentDf.columns and rating in range(1, 6):
+                row["Rating"] = rating
             toAdd.append(row)
             seenIds.add(recordId)
     return toAdd, skipped
@@ -690,18 +775,115 @@ def dustiestRecords(inventoryDf, playsDf, today=None):
     return dustyDf.sort_values(by=["DaysAgo", "ID"], ascending=[False, True], na_position="first")
 
 
+def statRow(cards):
+    # Web: one column per card. Phone: a two-by-two grid, because columns stack on a narrow screen.
+    if phone:
+        st.markdown(f'<div class="vc-stat-grid">{"".join(cards)}</div>', unsafe_allow_html=True)
+    else:
+        for column, card in zip(st.columns(len(cards)), cards):
+            column.markdown(card, unsafe_allow_html=True)
+
+
+def ratingOf(row):
+    # 1 to 5 stars, or None when the record has no rating or ratings are not set up yet
+    rating = toNumber(row.get("Rating"))
+    return rating if rating in range(1, 6) else None
+
+
+def saveRating(vinylId, widgetKey):
+    # Runs when stars are tapped; the page reruns right after
+    picked = st.session_state.get(widgetKey)
+    try:
+        updateVinyl(int(vinylId), {"Rating": None if picked is None else picked + 1})
+    except Exception as e:
+        st.session_state["flashMessage"] = (f"The rating could not be saved: {e}", "⚠️")
+        return
+    st.cache_data.clear()
+    st.session_state["flashMessage"] = ("Rating saved" if picked is not None else "Rating cleared", "⭐")
+
+
+def ratingWidget(row, place):
+    # Stars that save as soon as they are tapped. The key carries the stored rating, so the widget always
+    # starts from what the database holds.
+    rating = ratingOf(row)
+    widgetKey = f"rate_{place}_{row['ID']}_{rating}"
+    st.feedback("stars", key=widgetKey, default=None if rating is None else rating - 1,
+                on_change=saveRating, args=(row["ID"], widgetKey))
+
+
+def pickCandidates(inventoryDf, playsDf, genres=None, maxMinutes=None, today=None):
+    # Records worth playing next, each with a weight: the longer a record has waited the likelier it comes up,
+    # never-played ones most of all, and higher ratings tip the scale. Records played in the last 3 days sit out
+    # unless nothing else is left.
+    dusty = dustiestRecords(inventoryDf, playsDf, today)[["ID", "LastPlayed", "DaysAgo"]]
+    pool = inventoryDf.merge(dusty, on="ID")
+    if genres:
+        pool = pool[pool["Genre"].isin(genres)]
+    if maxMinutes:
+        minutes = pd.to_numeric(pool["DurationMins"], errors="coerce")
+        pool = pool[minutes.isna() | (minutes <= 0) | (minutes <= maxMinutes)]
+    rested = pool[pool["DaysAgo"].isna() | (pool["DaysAgo"] >= 3)]
+    if not rested.empty:
+        pool = rested
+    if pool.empty:
+        return pool
+
+    neverDays = max(60, int(pool["DaysAgo"].max()) + 14) if pool["DaysAgo"].notna().any() else 60
+    ratingBoost = {5: 1.6, 4: 1.3, 3: 1.0, 2: 0.7, 1: 0.4}
+    boost = [ratingBoost.get(ratingOf(row), 1.0) for _, row in pool.iterrows()]
+    return pool.assign(Weight=(pool["DaysAgo"].fillna(neverDays).clip(upper=365) + 7) * boost)
+
+
+def pickReason(row):
+    if pd.isna(row["DaysAgo"]):
+        reason = "You have not logged a play of this one yet."
+    elif row["DaysAgo"] == 0:
+        reason = "You played it earlier today."
+    else:
+        reason = f"Last played {formatDays(int(row['DaysAgo']))} ago."
+    rating = ratingOf(row)
+    if rating and rating >= 4:
+        reason += f" You gave it {rating} stars."
+    return reason
+
+
+def moveWantToCollection(item):
+    # Adds a wanted record to the collection with what Discogs and Spotify know, then takes it off the list
+    artist, album = str(item["Artist"]), str(item["AlbumName"])
+    textOf = lambda value: "" if value is None or pd.isna(value) else str(value)
+    discogsId = toNumber(item.get("DiscogsID"))
+    minutes, tracklist, subGenre = fetchReleaseDetails(discogsId) if isinstance(discogsId, int) else (0, "", "")
+    spotifyCover, spotifyMinutes = fetchSpotifyData(artist, album)
+    record = {"ID": int(time.time()), "Artist": artist, "AlbumName": album, "Genre": textOf(item.get("Genre")),
+              "SubGenre": subGenre, "Year": textOf(item.get("Year")),
+              "CoverURL": spotifyCover or textOf(item.get("CoverURL")), "Condition": "New",
+              "DurationMins": spotifyMinutes or minutes, "Tracklist": tracklist}
+    addNewVinyl(record)
+    deleteWant(item["id"])
+    return record
+
+
 # --- SIDEBAR & REFRESH ---
 if "displayTz" not in st.session_state:
     st.session_state["displayTz"] = defaultTimezone()
+if "viewLayout" not in st.session_state:
+    st.session_state["viewLayout"] = defaultLayout()
 
 with st.sidebar:
     st.header("Settings")
     if st.button("🔄 Refresh Data"):
         st.cache_data.clear()
         st.rerun()
+    st.radio("Layout", ["Phone", "Web"], key="viewLayout", horizontal=True,
+             help="Phone fits a narrow screen. Web is the wide desktop layout.",
+             on_change=lambda: st.query_params.update(layout=st.session_state["viewLayout"].lower()))
     st.selectbox("Timezone", sorted(available_timezones()), key="displayTz",
                  help="Listening times are shown on this clock.",
                  on_change=lambda: st.query_params.update(tz=st.session_state["displayTz"]))
+
+phone = st.session_state["viewLayout"] == "Phone"
+if phone:
+    st.markdown(phoneCss, unsafe_allow_html=True)
 
 # --- USER INTERFACE (UI) ---
 if "flashMessage" in st.session_state:
@@ -715,9 +897,14 @@ st.markdown(
 
 if "lastPlay" in st.session_state:
     lastPlay = st.session_state["lastPlay"]
-    bannerText, bannerUndo, bannerClose = st.columns([7, 1.4, 1.6], vertical_alignment="center")
-    bannerText.markdown(f'<div class="vc-banner">🎧 Logged <b>{esc(lastPlay["label"])}</b> at {lastPlay["when"]}</div>',
-                        unsafe_allow_html=True)
+    bannerHtml = f'<div class="vc-banner">🎧 Logged <b>{esc(lastPlay["label"])}</b> at {lastPlay["when"]}</div>'
+    if phone:
+        st.markdown(bannerHtml, unsafe_allow_html=True)
+        bannerRow = st.container(key="row_banner")
+        bannerUndo, bannerClose = bannerRow.columns(2)
+    else:
+        bannerText, bannerUndo, bannerClose = st.columns([7, 1.4, 1.6], vertical_alignment="center")
+        bannerText.markdown(bannerHtml, unsafe_allow_html=True)
     if bannerUndo.button("Undo", key="undoLastPlay"):
         deletePlay(lastPlay["id"])
         st.session_state.pop("lastPlay")
@@ -729,42 +916,88 @@ if "lastPlay" in st.session_state:
 
 vinylData = fetchData("Inventory")
 historyData = fetchData("ListeningHistory")
+wantData = fetchData("Wantlist", optional=True)  # None until migrations/002 has been run
 playsData = buildPlayTable(historyData, vinylData)
+ratingsOn = "Rating" in vinylData.columns
+
 
 # --- TOP PANEL (METRICS) ---
-if not vinylData.empty:
+def showTopStats():
+    if vinylData.empty:
+        return
     totalMinutes = playsData["DurationMins"].sum() if not playsData.empty else 0
-    totalPlays = len(playsData)
     albumsPlayed = playsData["Album"].nunique() if not playsData.empty else 0
     topGenre = vinylData["Genre"].mode()[0] if vinylData["Genre"].notna().any() else "-"
     topGenreCount = int((vinylData["Genre"] == topGenre).sum())
+    statRow([statCard("Records", len(vinylData), f"{vinylData['Artist'].nunique()} artists"),
+             statCard("Listening time", formatMinutes(totalMinutes), f"{len(playsData)} plays"),
+             statCard("Albums played", albumsPlayed, f"of {len(vinylData)} in the collection"),
+             statCard("Favorite genre", topGenre, f"{topGenreCount} records")])
 
-    statCols = st.columns(4)
-    statCols[0].markdown(statCard("Records", len(vinylData), f"{vinylData['Artist'].nunique()} artists"),
-                         unsafe_allow_html=True)
-    statCols[1].markdown(statCard("Listening time", formatMinutes(totalMinutes), f"{totalPlays} plays"),
-                         unsafe_allow_html=True)
-    statCols[2].markdown(statCard("Albums played", albumsPlayed, f"of {len(vinylData)} in the collection"),
-                         unsafe_allow_html=True)
-    statCols[3].markdown(statCard("Favorite genre", topGenre, f"{topGenreCount} records"), unsafe_allow_html=True)
 
-st.write("")
+# --- NAVIGATION ---
+# The open section lives in session state (and the page address), so saving something keeps you where you are.
+# Only the open section is drawn, which also keeps each tap quick.
+sections = {
+    "collection": ("💿 Collection", "💿 Records"),
+    "play": ("🎲 What to play", "🎲 Play"),
+    "log": ("🎧 Listening Log", "🎧 Log"),
+    "wants": ("🛒 Want list", "🛒 Wants"),
+    "add": ("➕ Add New", "➕ Add"),
+    "manage": ("⚙️ Manage", "⚙️ Manage"),
+    "stats": ("📊 Dashboard", "📊 Stats"),
+}
+if "section" not in st.session_state:
+    linkedSection = st.query_params.get("section")
+    st.session_state["section"] = linkedSection if linkedSection in sections else "collection"
 
-# --- TABS ---
-tabGallery, tabAdd, tabLog, tabManage, tabDash = st.tabs([
-    "💿 Collection", "➕ Add New", "🎧 Listening Log", "⚙️ Manage", "📊 Dashboard"
-])
 
-# TAB 1: COLLECTION VIEW
-with tabGallery:
-    sortOptions = ["Recently added", "Recently listened", "Artist A-Z", "Album A-Z", "Year (newest)", "Year (oldest)", "Longest first"]
-    colSearch, colGenre, colSort, colToggle = st.columns([3, 2, 2, 2])
-    searchQuery = colSearch.text_input("Search", placeholder="Search album or artist", label_visibility="collapsed")
-    selectedGenres = colGenre.multiselect("Genre", vinylData["Genre"].dropna().unique() if not vinylData.empty else [],
-                                          placeholder="All genres", label_visibility="collapsed")
-    sortChoice = colSort.selectbox("Sort", sortOptions, label_visibility="collapsed")
-    layoutMode = colToggle.segmented_control("Layout", ["Grid", "List"], default="Grid",
-                                             label_visibility="collapsed") or "Grid"
+def openSection(navKey):
+    # Tapping the open section again would clear the control, so it stays on the open section instead
+    picked = st.session_state.get(navKey)
+    if picked is None:
+        st.session_state[navKey] = st.session_state["section"]
+    else:
+        st.session_state["section"] = picked
+
+
+if not phone:
+    showTopStats()
+    st.write("")
+
+navKey = f"nav_{st.session_state['viewLayout']}"
+st.session_state[navKey] = st.session_state["section"]
+with st.container(key="nav"):
+    (st.pills if phone else st.segmented_control)(
+        "Section", list(sections), key=navKey, label_visibility="collapsed", on_change=openSection, args=(navKey,),
+        format_func=lambda name: sections[name][1 if phone else 0])
+section = st.session_state["section"]
+st.query_params["section"] = section
+
+# COLLECTION VIEW
+if section == "collection":
+    if phone:
+        showTopStats()
+
+    sortOptions = ["Recently added", "Recently listened", "Artist A-Z", "Album A-Z", "Year (newest)", "Year (oldest)",
+                   "Longest first"] + (["Top rated"] if ratingsOn else [])
+    genreOptions = vinylData["Genre"].dropna().unique() if not vinylData.empty else []
+    if phone:
+        searchQuery = st.text_input("Search", placeholder="Search album or artist", label_visibility="collapsed",
+                                    key="colSearch")
+        with st.expander("Filter and sort"):
+            selectedGenres = st.multiselect("Genre", genreOptions, placeholder="All genres", key="colGenres")
+            sortChoice = st.selectbox("Sort", sortOptions, key="colSort")
+            viewMode = st.segmented_control("View", ["Grid", "List"], default="Grid", key="colView") or "Grid"
+    else:
+        colSearch, colGenre, colSort, colToggle = st.columns([3, 2, 2, 2])
+        searchQuery = colSearch.text_input("Search", placeholder="Search album or artist", label_visibility="collapsed",
+                                           key="colSearch")
+        selectedGenres = colGenre.multiselect("Genre", genreOptions, placeholder="All genres",
+                                              label_visibility="collapsed", key="colGenres")
+        sortChoice = colSort.selectbox("Sort", sortOptions, label_visibility="collapsed", key="colSort")
+        viewMode = colToggle.segmented_control("View", ["Grid", "List"], default="Grid",
+                                               label_visibility="collapsed", key="colView") or "Grid"
 
     filteredData = vinylData.copy()
     if not filteredData.empty:
@@ -784,14 +1017,16 @@ with tabGallery:
             "Year (newest)": ("YearNum", False),
             "Year (oldest)": ("YearNum", True),
             "Longest first": ("DurationNum", False),
+            "Top rated": ("RatingNum", False),
         }
         sortColumn, sortAscending = sortKeys[sortChoice]
-        # Records that have never been played sort last under "Recently listened"
+        # Records that have never been played (or rated) sort last
         lastPlayedById = dustiestRecords(vinylData, playsData).set_index("ID")["LastPlayed"]
         filteredData = filteredData.assign(
             LastPlayed=filteredData["ID"].map(lastPlayedById),
             YearNum=pd.to_numeric(filteredData["Year"], errors="coerce"),
             DurationNum=pd.to_numeric(filteredData["DurationMins"], errors="coerce"),
+            RatingNum=pd.to_numeric(filteredData.get("Rating"), errors="coerce"),
         ).sort_values(by=sortColumn, ascending=sortAscending, key=lambda col: col.str.lower() if pd.api.types.is_string_dtype(col) else col)
 
     if vinylData.empty:
@@ -804,32 +1039,40 @@ with tabGallery:
                     unsafe_allow_html=True)
         records = [row for _, row in filteredData.iterrows()]
         displayDuration = lambda row: row.get("DurationMins") if pd.notna(row.get("DurationMins")) and row.get("DurationMins") else 45
+        listenLabel = "🎧 Listened" if phone else "I listened to this"
 
-        if layoutMode == "Grid":
-            for rowStart in range(0, len(records), gridColumns):
-                gridCols = st.columns(gridColumns)
-                for gridCol, row in zip(gridCols, records[rowStart:rowStart + gridColumns]):
+        if viewMode == "Grid":
+            perRow = 2 if phone else gridColumns
+            for rowStart in range(0, len(records), perRow):
+                gridCols = st.container(key=f"row_grid_{rowStart}").columns(perRow)
+                for gridCol, row in zip(gridCols, records[rowStart:rowStart + perRow]):
                     with gridCol.container(key=f"card_grid_{row['ID']}"):
                         st.markdown(
                             coverHtml(row.get("CoverURL")) +
                             f'<div class="vc-title" title="{esc(row["AlbumName"])}">{esc(row["AlbumName"])}</div>'
-                            f'<div class="vc-artist">{esc(row["Artist"])}</div>' + pillsHtml(row) +
-                            lastPlayedHtml(row["LastPlayed"]),
+                            f'<div class="vc-artist">{esc(row["Artist"])}</div>' +
+                            (metaHtml(row) if phone else pillsHtml(row)) +
+                            lastPlayedHtml(row["LastPlayed"], short=phone),
                             unsafe_allow_html=True)
-                        if st.button("I listened to this", key=f"btnGrid_{row['ID']}"):
+                        if ratingsOn:
+                            ratingWidget(row, "grid")
+                        if st.button(listenLabel, key=f"btnGrid_{row['ID']}"):
                             logPlay(row["AlbumName"], displayDuration(row), row["ID"])
         else:
             for row in records:
                 with st.container(key=f"card_list_{row['ID']}"):
-                    colImg, colDetails = st.columns([1, 4])
+                    colImg, colDetails = st.container(key=f"row_list_{row['ID']}").columns([1, 2.4] if phone else [1, 4])
                     with colImg:
                         st.markdown(coverHtml(row.get("CoverURL")), unsafe_allow_html=True)
                     with colDetails:
                         st.markdown(
                             f'<div class="vc-title-lg">{esc(row["AlbumName"])}</div>'
-                            f'<div class="vc-artist">{esc(row["Artist"])}</div>' + pillsHtml(row) +
-                            lastPlayedHtml(row["LastPlayed"]),
+                            f'<div class="vc-artist">{esc(row["Artist"])}</div>' +
+                            (metaHtml(row) if phone else pillsHtml(row)) +
+                            lastPlayedHtml(row["LastPlayed"], short=phone),
                             unsafe_allow_html=True)
+                        if ratingsOn:
+                            ratingWidget(row, "list")
 
                         tracklistData = row.get("Tracklist", "")
                         if tracklistData and pd.notna(tracklistData):
@@ -838,11 +1081,127 @@ with tabGallery:
                                     st.markdown(f"<div class='tracklist-text'>{trackNum}. {esc(trackName)}</div>",
                                                 unsafe_allow_html=True)
 
-                        if st.button("I listened to this", key=f"btnList_{row['ID']}"):
+                        if st.button(listenLabel, key=f"btnList_{row['ID']}"):
                             logPlay(row["AlbumName"], displayDuration(row), row["ID"])
 
-# TAB 2: ADD NEW VINYL
-with tabAdd:
+# WHAT SHOULD I PLAY
+if section == "play":
+    st.header("What should I play?")
+    if vinylData.empty:
+        st.info("Add some records first, then come back for a suggestion.")
+    else:
+        lengthLimits = {"Any length": None, "Up to 30 min": 30, "Up to 45 min": 45, "Up to 60 min": 60}
+        colPickGenre, colPickLength = st.columns(2)
+        pickGenres = colPickGenre.multiselect("Genre", vinylData["Genre"].dropna().unique(), placeholder="Any genre",
+                                              key="pickGenres")
+        pickLength = colPickLength.selectbox("Time you have", list(lengthLimits), key="pickLength")
+        candidates = pickCandidates(vinylData, playsData, pickGenres, lengthLimits[pickLength])
+
+        # The pick stays put across reruns until you ask for another one or change the filters
+        pickFilters = (tuple(pickGenres), pickLength)
+        if st.session_state.get("pickFilters") != pickFilters:
+            st.session_state.update(pickFilters=pickFilters, pickId=None, pickSkipped=[])
+        fresh = candidates[~candidates["ID"].isin(st.session_state["pickSkipped"])] if not candidates.empty else candidates
+        if not candidates.empty and fresh.empty:
+            st.session_state["pickSkipped"] = []  # every record has been offered once; start over
+            fresh = candidates
+        freshIds = set(fresh["ID"]) if not fresh.empty else set()
+        if st.session_state.get("pickId") not in freshIds:
+            st.session_state["pickId"] = (int(random.choices(list(fresh["ID"]), weights=list(fresh["Weight"]))[0])
+                                          if freshIds else None)
+
+        if st.session_state["pickId"] is None:
+            st.markdown('<div class="vc-empty">Nothing matches. Try another genre or more time.</div>',
+                        unsafe_allow_html=True)
+        else:
+            pick = candidates[candidates["ID"] == st.session_state["pickId"]].iloc[0]
+            colPickCover, colPickInfo = st.columns([1, 2])
+            colPickCover.markdown(f'<div class="vc-pick-cover">{coverHtml(pick.get("CoverURL"))}</div>',
+                                  unsafe_allow_html=True)
+            with colPickInfo:
+                st.markdown(
+                    f'<div class="vc-title-lg">{esc(pick["AlbumName"])}</div>'
+                    f'<div class="vc-artist">{esc(pick["Artist"])}</div>' + pillsHtml(pick) +
+                    f'<div class="vc-reason">{esc(pickReason(pick))}</div>', unsafe_allow_html=True)
+                colPlayIt, colAnother = st.container(key="row_pick").columns(2)
+                if colPlayIt.button("🎧 Play it", type="primary", key="pickPlay",
+                                    help="Logs a play of this record now"):
+                    pickMinutes = pd.to_numeric(pick.get("DurationMins"), errors="coerce")
+                    logPlay(pick["AlbumName"], int(pickMinutes) if pd.notna(pickMinutes) and pickMinutes > 0 else 45,
+                            pick["ID"])
+                if colAnother.button("🔀 Another one", key="pickAnother"):
+                    st.session_state["pickSkipped"].append(st.session_state["pickId"])
+                    st.session_state["pickId"] = None
+                    st.rerun()
+            st.caption(f"Picked from {len(candidates)} records. Ones you have not played for a while come up more "
+                       "often, and higher ratings count extra.")
+
+# WANT LIST
+if section == "wants":
+    st.header("Want list")
+    if wantData is None:
+        st.info(migrationHint)
+    else:
+        with st.expander("Add a record you want", expanded=wantData.empty):
+            st.caption("Tip: search Discogs in Add New and choose Add to want list to keep the cover and details.")
+            colWantArtist, colWantAlbum = st.columns(2)
+            wantArtist = colWantArtist.text_input("Artist", key="wantArtist")
+            wantAlbum = colWantAlbum.text_input("Album", key="wantAlbum")
+            colWantYear, colWantGenre = st.columns(2)
+            wantYear = colWantYear.text_input("Year (optional)", key="wantYear")
+            wantGenre = colWantGenre.text_input("Genre (optional)", key="wantGenre")
+            wantCover = st.text_input("Cover image URL (optional)", key="wantCover")
+            if st.button("Add to want list", type="primary", key="btnAddWant"):
+                if not (wantArtist.strip() and wantAlbum.strip()):
+                    st.warning("Enter at least the artist and the album.")
+                elif isDuplicate(wantArtist, wantAlbum, vinylData):
+                    st.warning(f"{wantAlbum} by {wantArtist} is already in your collection.")
+                elif isDuplicate(wantArtist, wantAlbum, wantData):
+                    st.warning(f"{wantAlbum} by {wantArtist} is already on your want list.")
+                else:
+                    addWant({"Artist": wantArtist.strip(), "AlbumName": wantAlbum.strip(), "Year": wantYear.strip(),
+                             "Genre": wantGenre.strip(), "CoverURL": wantCover.strip()})
+                    for fieldKey in ("wantArtist", "wantAlbum", "wantYear", "wantGenre", "wantCover"):
+                        st.session_state.pop(fieldKey, None)
+                    saveAndRefresh(f"Added {wantAlbum.strip()} to your want list", "🛒")
+
+        if wantData.empty:
+            st.markdown('<div class="vc-empty">Nothing on your want list yet.</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="vc-count">{len(wantData)} records you want</div>', unsafe_allow_html=True)
+            addedAt = (pd.to_datetime(wantData["AddedAt"], errors="coerce", format="mixed", utc=True)
+                       .dt.tz_convert(displayTimezone()))
+            for _, item in wantData.assign(Added=addedAt).sort_values("id", ascending=False).iterrows():
+                with st.container(key=f"card_want_{item['id']}"):
+                    colWantCover, colWantInfo = st.container(key=f"row_want_{item['id']}").columns(
+                        [1, 2.4] if phone else [1, 6])
+                    colWantCover.markdown(coverHtml(item.get("CoverURL")), unsafe_allow_html=True)
+                    addedText = f"Added {item['Added'].strftime('%d %b %Y')}" if pd.notna(item["Added"]) else ""
+                    with colWantInfo:
+                        st.markdown(
+                            f'<div class="vc-title-lg">{esc(item["AlbumName"])}</div>'
+                            f'<div class="vc-artist">{esc(item["Artist"])}</div>' + metaHtml(item) +
+                            f'<div class="vc-last">{esc(addedText)}</div>', unsafe_allow_html=True)
+                        colGotIt, colRemove = st.container(key=f"row_wantbtn_{item['id']}").columns(2)
+                        if colGotIt.button("✅ Got it", key=f"gotWant_{item['id']}",
+                                           help="Moves it into your collection"):
+                            if isDuplicate(item["Artist"], item["AlbumName"], vinylData):
+                                deleteWant(item["id"])
+                                saveAndRefresh(f"{item['AlbumName']} was already in your collection, so it was "
+                                               "taken off the list", "✅")
+                            with st.spinner("Looking up the tracklist and cover..."):
+                                newRecord = moveWantToCollection(item)
+                            st.session_state["section"] = "manage"
+                            st.session_state["manageSelect"] = \
+                                f"{newRecord['Artist']} - {newRecord['AlbumName']} (ID: {newRecord['ID']})"
+                            saveAndRefresh(f"Moved {newRecord['AlbumName']} into your collection. "
+                                           "Check its details here.", "🎉")
+                        if colRemove.button("Remove", key=f"delWant_{item['id']}"):
+                            deleteWant(item["id"])
+                            saveAndRefresh(f"Took {item['AlbumName']} off your want list", "🗑️")
+
+# ADD NEW VINYL
+if section == "add":
     st.header("Add New Vinyl")
 
     searchMethod = st.radio("Select Search Method:", ["📝 Text Search", "📷 Scan with Barcode", "✍️ Manual Entry"],
@@ -1008,7 +1367,21 @@ with tabAdd:
                     finalCondition = st.selectbox("Condition", ["New", "Used", "Mint", "Fair"],
                                                   key=f"apiCondition_{releaseId}")
 
-                if st.button("Save to Collection", type="primary", key=f"btnSaveApi_{releaseId}"):
+                colSaveApi, colWantApi = st.container(key=f"row_saveapi_{releaseId}").columns(2)
+                if colWantApi.button("🛒 Add to want list", key=f"btnWantApi_{releaseId}"):
+                    if wantData is None:
+                        st.info(migrationHint)
+                    elif isDuplicate(finalArtist, finalAlbum, vinylData):
+                        st.warning(f"{finalAlbum} by {finalArtist} is already in your collection.")
+                    elif isDuplicate(finalArtist, finalAlbum, wantData):
+                        st.warning(f"{finalAlbum} by {finalArtist} is already on your want list.")
+                    else:
+                        addWant({"Artist": finalArtist, "AlbumName": finalAlbum, "Year": finalYear,
+                                 "Genre": finalGenre, "CoverURL": parsedCover,
+                                 "DiscogsID": int(releaseId) if str(releaseId).isdigit() else None})
+                        saveAndRefresh(f"Added {finalAlbum} to your want list", "🛒")
+
+                if colSaveApi.button("Save to Collection", type="primary", key=f"btnSaveApi_{releaseId}"):
                     if isDuplicate(finalArtist, finalAlbum, vinylData):
                         st.error(
                             f"⚠️ **Wait!** '{finalAlbum}' by '{finalArtist}' is already in your collection. It was not added.")
@@ -1032,8 +1405,8 @@ with tabAdd:
                         del st.session_state["apiResults"]
                         saveAndRefresh(f"Added {finalAlbum} to your collection", "💿")
 
-# TAB 3: LOG LISTENING SESSION
-with tabLog:
+# LOG LISTENING SESSION
+if section == "log":
     st.header("Log a listen")
 
     if not vinylData.empty:
@@ -1077,24 +1450,30 @@ with tabLog:
         st.markdown(f'<div class="vc-count">Showing the latest {len(recentPlays)} of {len(playsData)} plays</div>',
                     unsafe_allow_html=True)
         for _, play in recentPlays.iterrows():
-            colWhen, colAlbumName, colLength, colDelete = st.columns([3, 5, 1.3, 1.3], vertical_alignment="center")
             if pd.notna(play["When"]):
                 whenText = f'{play["When"].strftime("%a %d %b %Y")} <span class="vc-hist-muted">at ' \
                            f'{play["When"].strftime("%H:%M")}</span>'
             else:
                 whenText = esc(play["Date"])
-            colWhen.markdown(f'<div class="vc-hist">{whenText}</div>', unsafe_allow_html=True)
-            colAlbumName.markdown(f'<div class="vc-hist">{esc(play["Album"])}</div>', unsafe_allow_html=True)
-            colLength.markdown(f'<div class="vc-hist vc-hist-muted">{int(play["DurationMins"])} min</div>',
-                               unsafe_allow_html=True)
+            if phone:
+                colPlay, colDelete = st.container(key=f"row_play_{play['id']}").columns([4, 1.3],
+                                                                                       vertical_alignment="center")
+                colPlay.markdown(f'<div class="vc-hist">{esc(play["Album"])}<br><span class="vc-hist-muted">'
+                                 f'{whenText} · {int(play["DurationMins"])} min</span></div>', unsafe_allow_html=True)
+            else:
+                colWhen, colAlbumName, colLength, colDelete = st.columns([3, 5, 1.3, 1.3], vertical_alignment="center")
+                colWhen.markdown(f'<div class="vc-hist">{whenText}</div>', unsafe_allow_html=True)
+                colAlbumName.markdown(f'<div class="vc-hist">{esc(play["Album"])}</div>', unsafe_allow_html=True)
+                colLength.markdown(f'<div class="vc-hist vc-hist-muted">{int(play["DurationMins"])} min</div>',
+                                   unsafe_allow_html=True)
             if "id" in play and pd.notna(play["id"]) and colDelete.button("Delete", key=f"delPlay_{play['id']}"):
                 deletePlay(play["id"])
                 saveAndRefresh(f"Removed the play of {play['Album']}", "🗑️")
     else:
         st.info("No listening sessions yet. Log one above, or use \"I listened to this\" on the Collection tab.")
 
-# TAB 4: MANAGE COLLECTION
-with tabManage:
+# MANAGE COLLECTION
+if section == "manage":
     st.header("Manage Your Collection")
 
     if not vinylData.empty:
@@ -1110,7 +1489,8 @@ with tabManage:
             colImgMng, colEditMng = st.columns([1, 3])
 
             with colImgMng:
-                st.markdown(coverHtml(targetRow.get("CoverURL")), unsafe_allow_html=True)
+                st.markdown(f'<div style="max-width: {"140px" if phone else "100%"}">'
+                            f'{coverHtml(targetRow.get("CoverURL"))}</div>', unsafe_allow_html=True)
 
             with colEditMng:
                 updArtist = st.text_input("Artist", value=targetRow.get("Artist", ""), key=f"updArt_{selectedId}")
@@ -1146,6 +1526,12 @@ with tabManage:
 
                 updCover = st.text_input("Cover URL", value=targetRow.get("CoverURL", ""), key=f"updCov_{selectedId}")
 
+                if ratingsOn:
+                    st.markdown('<div class="vc-meta">Rating</div>', unsafe_allow_html=True)
+                    storedRating = ratingOf(targetRow)
+                    updRating = st.feedback("stars", key=f"updRate_{selectedId}_{storedRating}",
+                                            default=None if storedRating is None else storedRating - 1)
+
                 colBtnUpdate, colBtnDelete = st.columns(2)
                 with colBtnUpdate:
                     if st.button("💾 Update Record", use_container_width=True, type="primary"):
@@ -1160,6 +1546,8 @@ with tabManage:
                             "Condition": updCondition,
                             "CoverURL": updCover
                         }
+                        if ratingsOn:
+                            updatedDataDict["Rating"] = None if updRating is None else updRating + 1
                         oldName = str(targetRow["AlbumName"])
                         if updAlbum != oldName and (vinylData["AlbumName"].astype(str).str.strip().str.lower()
                                                     == oldName.strip().lower()).sum() == 1:
@@ -1173,6 +1561,8 @@ with tabManage:
                         saveAndRefresh(f"Deleted {updAlbum}", "🗑️")
     else:
         st.info("Your collection is currently empty.")
+    if (not ratingsOn and not vinylData.empty) or wantData is None:
+        st.caption("Ratings and the want list: " + migrationHint)
 
     st.write("---")
     st.subheader("Backup")
@@ -1180,7 +1570,12 @@ with tabManage:
                "They hold what the app shows now (press Refresh Data first if you changed the tables elsewhere), "
                "and listening times are saved in UTC.")
     backupStamp = localNow().strftime("%Y-%m-%d")
-    colBackupRecords, colBackupPlays = st.columns(2)
+    colBackupRecords, colBackupPlays, colBackupWants = st.columns(3)
+    with colBackupWants:
+        st.download_button(f"⬇️ Want list ({0 if wantData is None else len(wantData)})",
+                           data=backupCsv(wantData if wantData is not None else pd.DataFrame()),
+                           file_name=f"vinyl-want-list-{backupStamp}.csv", mime="text/csv",
+                           disabled=wantData is None, use_container_width=True, key="backupWants")
     with colBackupRecords:
         st.download_button(f"⬇️ Records ({len(vinylData)})", data=backupCsv(vinylData),
                            file_name=f"vinyl-records-{backupStamp}.csv", mime="text/csv",
@@ -1202,7 +1597,7 @@ with tabManage:
         restorePanel("Listening history CSV", "plays", "ListeningHistory", ["Date", "AlbumName"],
                      planPlayRestore, historyData)
 
-# TAB 5: DASHBOARD & STATISTICS
+# DASHBOARD & STATISTICS
 def barChart(chartDf, category, value, valueTitle, horizontal=True, height=280):
     categoryEncoding = alt.Y if horizontal else alt.X
     valueEncoding = alt.X if horizontal else alt.Y
@@ -1213,7 +1608,7 @@ def barChart(chartDf, category, value, valueTitle, horizontal=True, height=280):
     ).properties(height=height)
 
 
-with tabDash:
+if section == "stats":
     st.header("Collection analytics")
 
     if not vinylData.empty:
@@ -1268,15 +1663,10 @@ with tabDash:
             neverPlayed = int(dustyRecords["LastPlayed"].isna().sum())
             activeDays = playsData["When"].dropna().dt.normalize().nunique()
 
-            insightCols = st.columns(4)
-            insightCols[0].markdown(statCard("Current streak", formatDays(currentStreak), "in a row"),
-                                    unsafe_allow_html=True)
-            insightCols[1].markdown(statCard("Longest streak", formatDays(longestStreak), "in a row"),
-                                    unsafe_allow_html=True)
-            insightCols[2].markdown(statCard("Days listened", activeDays, "with at least one play"),
-                                    unsafe_allow_html=True)
-            insightCols[3].markdown(statCard("Never played", neverPlayed, f"of {len(vinylData)} records"),
-                                    unsafe_allow_html=True)
+            statRow([statCard("Current streak", formatDays(currentStreak), "in a row"),
+                     statCard("Longest streak", formatDays(longestStreak), "in a row"),
+                     statCard("Days listened", activeDays, "with at least one play"),
+                     statCard("Never played", neverPlayed, f"of {len(vinylData)} records")])
             st.write("")
 
             colChart5, colChart6 = st.columns(2)
@@ -1324,17 +1714,13 @@ with tabDash:
             topYearAlbum = yearPlays.groupby("Album")["DurationMins"].sum().idxmax()
             yearArtists = yearPlays.dropna(subset=["Artist"]).groupby("Artist")["DurationMins"].sum()
 
-            yearCols = st.columns(4)
-            yearCols[0].markdown(statCard("Listening time", formatMinutes(yearPlays["DurationMins"].sum()),
-                                          f"{len(yearPlays)} plays"), unsafe_allow_html=True)
-            yearCols[1].markdown(statCard("Albums played", yearPlays["Album"].nunique(),
-                                          "different records"), unsafe_allow_html=True)
-            yearCols[2].markdown(statCard("Busiest month", pd.Timestamp(2000, int(monthMinutes.idxmax()), 1)
-                                          .strftime("%B"), formatMinutes(monthMinutes.max())),
-                                 unsafe_allow_html=True)
-            yearCols[3].markdown(statCard("Top artist", yearArtists.idxmax() if not yearArtists.empty else "-",
-                                          formatMinutes(yearArtists.max()) if not yearArtists.empty else ""),
-                                 unsafe_allow_html=True)
+            statRow([statCard("Listening time", formatMinutes(yearPlays["DurationMins"].sum()),
+                              f"{len(yearPlays)} plays"),
+                     statCard("Albums played", yearPlays["Album"].nunique(), "different records"),
+                     statCard("Busiest month", pd.Timestamp(2000, int(monthMinutes.idxmax()), 1).strftime("%B"),
+                              formatMinutes(monthMinutes.max())),
+                     statCard("Top artist", yearArtists.idxmax() if not yearArtists.empty else "-",
+                              formatMinutes(yearArtists.max()) if not yearArtists.empty else "")])
             st.markdown(f'<div class="vc-count">Most played album of {reviewYear}: '
                         f'<b style="color: var(--vc-accent)">{esc(topYearAlbum)}</b></div>', unsafe_allow_html=True)
 
