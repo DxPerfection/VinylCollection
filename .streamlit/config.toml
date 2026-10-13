@@ -7,3 +7,7 @@ textColor = "#ECECF1"
 
 [client]
 toolbarMode = "minimal"
+
+[server]
+# Serves the static folder (home screen icons and the app manifest) at app/static/
+enableStaticServing = true

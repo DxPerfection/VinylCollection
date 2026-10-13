@@ -97,6 +97,14 @@ export default function(component) {
     } catch (e) {
         if (data.known !== "") setStateValue("saved", "");
     }
+    // While the sign-in page is open, a sign-in finished in another tab (GitHub may open one, for example from the
+    // home screen app) is picked up here straight away
+    if (data.save) return;
+    const onStorage = (event) => {
+        if (event.key === "vc_session" && event.newValue) setStateValue("saved", event.newValue);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
 }
 """
 

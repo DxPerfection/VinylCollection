@@ -12,7 +12,9 @@ Live at https://vinylcollection-beta.streamlit.app.
   - `auth.py` GitHub sign-in, `db.py` reading and writing Supabase, `apis.py` Discogs and Spotify
   - `clock.py` timezones, `stats.py` streaks, dusty records and the "What should I play" picker,
     `backup.py` CSV backup and restore planning, `ui.py` shared display helpers
+  - `homescreen.py` the icon and app manifest tags that let a phone add the app to its home screen
   - `sections/` one module per section: collection, play, wants, add, log, manage, dashboard
+- `static/` the home screen icons and `manifest.json`, served at `app/static/`.
 - `migrations/` the SQL changes to run in Supabase, in order.
 - `tests/` checks for the stats, picker, backup and restore, plus a test that draws every section with sample data.
 

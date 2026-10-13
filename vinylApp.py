@@ -8,12 +8,14 @@ from vinyl.appdata import loadAppData
 from vinyl.auth import keepSignIn, requireSignIn, signOut
 from vinyl.clock import defaultLayout, defaultTimezone
 from vinyl.db import deletePlay
+from vinyl.homescreen import addHomeScreenTags
 from vinyl.sections import add, collection, dashboard, log, manage, play, wants
 from vinyl.styles import applyPhoneStyles, applyStyles
 from vinyl.ui import esc, saveAndRefresh, showTopStats
 
 st.set_page_config(page_title="Vinyl Collection", page_icon="💿", layout="wide")
 applyStyles()
+addHomeScreenTags()
 
 requireSignIn()
 
