@@ -20,7 +20,8 @@ signInParams = ("signin", "code", "error", "error_code", "error_description")
 @st.cache_resource
 def pendingSignIns():
     # Sign-ins waiting for GitHub to send you back. The page reloads on the way back, so the client that started
-    # the sign-in (and its one-time code verifier) waits here on the server, under a random key.
+    # the sign-in (and its one-time code verifier) waits here on the server, under a random key, together with the
+    # page address you signed in from.
     return {}
 
 
@@ -52,13 +53,14 @@ def isOwner(user):
 def signInLink():
     if "signInUrl" not in st.session_state:
         pending = pendingSignIns()
-        for oldKey in [key for key, (_, startedAt) in pending.items() if time.time() - startedAt > 900]:
+        for oldKey in [key for key, (_, startedAt, _) in pending.items() if time.time() - startedAt > 900]:
             pending.pop(oldKey, None)
         signInKey = secrets.token_urlsafe(16)
         client = newSupabaseClient()
         response = client.auth.sign_in_with_oauth(
             {"provider": "github", "options": {"redirect_to": f"{appUrl()}/?signin={signInKey}"}})
-        pending[signInKey] = (client, time.time())
+        returnTo = {name: value for name, value in st.query_params.items() if name not in signInParams}
+        pending[signInKey] = (client, time.time(), returnTo)
         st.session_state["signInUrl"] = response.url
     return st.session_state["signInUrl"]
 
@@ -73,7 +75,8 @@ def finishSignIn():
         return None, f"GitHub sign-in did not finish: {params['error_description'] or params['error']}"
     if not params["code"] or pending is None:
         return None, "That sign-in link has expired. Please sign in again."
-    client = pending[0]
+    client, _, returnTo = pending
+    st.query_params.update(returnTo)  # back to the section and layout you signed in from
     try:
         client.auth.exchange_code_for_session({"auth_code": params["code"]})
         return client, None
@@ -97,6 +100,34 @@ export default function(component) {
     } catch (e) {
         if (data.known !== "") setStateValue("saved", "");
     }
+    // While the sign-in page is open, a sign-in finished in another tab (GitHub may open one, for example from the
+    // home screen app) is picked up here straight away
+    if (data.save) return;
+    const onStorage = (event) => {
+        if (event.key === "vc_session" && event.newValue) setStateValue("saved", event.newValue);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+}
+"""
+
+
+# GitHub sign-in opens in the same tab, so it brings you back to the page you left rather than to a second tab.
+# Where the hosted page does not let the app move the whole tab, the link opens a new tab as before.
+signInHereJs = """
+export default function() {
+    const onClick = (event) => {
+        const link = event.target.closest && event.target.closest(".st-key-signInButton a[href]");
+        if (!link) return;
+        event.preventDefault();
+        try {
+            window.top.location.assign(link.href);
+        } catch (e) {
+            window.open(link.href, "_blank");
+        }
+    };
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
 }
 """
 
@@ -155,7 +186,9 @@ def showSignInPage(message=None):
         st.warning(message)
     if not checking:
         try:
-            st.link_button("Sign in with GitHub", signInLink(), type="primary")
+            st.link_button("Sign in with GitHub", signInLink(), type="primary", key="signInButton")
+            signInHere = st.components.v2.component("sign_in_here", js=signInHereJs)
+            signInHere(key="signInHere")
         except Exception as e:
             st.error(f"GitHub sign-in is not available yet: {e}")
     # A saved sign-in that did not work (or was just signed out) is forgotten
