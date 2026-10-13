@@ -113,7 +113,8 @@ export default function(component) {
 
 
 # GitHub sign-in opens in the same tab, so it brings you back to the page you left rather than to a second tab.
-# Where the hosted page does not let the app move the whole tab, the link opens a new tab as before.
+# On Streamlit Cloud the app sits in a frame that may not move the whole tab itself, so a link added to the outer
+# page (which has the same address) does it. Where even that is not possible, the link opens a new tab as before.
 signInHereJs = """
 export default function() {
     const onClick = (event) => {
@@ -121,7 +122,12 @@ export default function() {
         if (!link) return;
         event.preventDefault();
         try {
-            window.top.location.assign(link.href);
+            const outerPage = window.top.document;
+            const hop = outerPage.createElement("a");
+            hop.href = link.href;
+            outerPage.body.appendChild(hop);
+            hop.click();
+            hop.remove();
         } catch (e) {
             window.open(link.href, "_blank");
         }

@@ -21,10 +21,10 @@ requireSignIn()
 
 
 # --- SIDEBAR & REFRESH ---
-if "displayTz" not in st.session_state:
-    st.session_state["displayTz"] = defaultTimezone()
-if "viewLayout" not in st.session_state:
-    st.session_state["viewLayout"] = defaultLayout()
+# Stated again on every run: when the sidebar was hidden for a run (the sign-in page) or a run was cut short, Streamlit
+# would otherwise draw these controls at their first option (Phone, Africa/Abidjan) while using the saved value
+st.session_state["displayTz"] = st.session_state.get("displayTz") or defaultTimezone()
+st.session_state["viewLayout"] = st.session_state.get("viewLayout") or defaultLayout()
 
 with st.sidebar:
     st.header("Settings")
