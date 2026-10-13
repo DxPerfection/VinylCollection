@@ -50,6 +50,9 @@ class FakeQuery:
 
 
 class FakeAuth:
+    def exchange_code_for_session(self, params):
+        return self.get_session()
+
     def get_session(self):
         return SimpleNamespace(user=SimpleNamespace(identities=[ownerIdentity]), access_token="a", refresh_token="r")
 
