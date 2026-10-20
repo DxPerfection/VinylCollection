@@ -14,3 +14,8 @@ create table if not exists "Wantlist" (
     "DiscogsID" bigint,
     "AddedAt" timestamptz not null default now()
 );
+
+-- Supabase stopped granting API access to new tables automatically (from 2026-10-30), so a fresh setup needs
+-- these. The app reaches the table as the signed-in user (authenticated) and the weekly backup as service_role.
+-- anon gets nothing: the owner-only rule (003) would block it anyway.
+grant select, insert, update, delete on "Wantlist" to authenticated, service_role;

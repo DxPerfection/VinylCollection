@@ -15,7 +15,9 @@ Live at https://vinylcollection-beta.streamlit.app.
   - `homescreen.py` the icon and app manifest tags that let a phone add the app to its home screen
   - `sections/` one module per section: collection, play, wants, add, log, manage, dashboard
 - `static/` the home screen icons and `manifest.json`, served at `app/static/`.
-- `migrations/` the SQL changes to run in Supabase, in order.
+- `migrations/` the SQL changes to run in Supabase, in order. A migration that creates a table must also
+  `grant select, insert, update, delete` on it to `authenticated, service_role` (Supabase no longer does this for new
+  tables) and add an "Owner only" policy like the ones in `003_owner_only.sql`.
 - `tests/` checks for the stats, picker, backup and restore, plus a test that draws every section with sample data.
 
 ## Running the tests
