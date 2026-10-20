@@ -22,6 +22,14 @@ def test_manifest_opens_the_app_full_screen():
     assert manifest["start_url"] == manifest["scope"] == "/"
 
 
+def test_manifest_has_its_own_identity():
+    # Streamlit's outer page has its own manifest (named "Streamlit") until the app adds ours. Chrome matches an
+    # installed app to a manifest by its id, which defaults to the start address "/", so with that id Chrome took
+    # Streamlit's manifest for an update of this app and offered to rename it "Streamlit"
+    manifest = json.loads((staticDir / "manifest.json").read_text())
+    assert manifest["id"] not in ("/", "", manifest["start_url"])
+
+
 def test_every_icon_exists_at_its_stated_size():
     manifest = json.loads((staticDir / "manifest.json").read_text())
     sizes = set()

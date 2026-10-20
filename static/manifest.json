@@ -2,7 +2,7 @@
   "name": "Vinyl Collection",
   "short_name": "Vinyl",
   "description": "Your records and everything you have spun.",
-  "id": "/",
+  "id": "/vinyl-collection",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
