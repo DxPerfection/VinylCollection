@@ -19,6 +19,7 @@ interface AddScreenProps {
 export function AddScreen({ data, actions, onClose }: AddScreenProps) {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState<DiscogsHit | null>(null);
+  const [byHand, setByHand] = useState(false);
   const [note, setNote] = useState("");
   const search = useDiscogsSearch(query);
   const known = useMemo(() => knownGenres(data.records), [data.records]);
@@ -43,6 +44,9 @@ export function AddScreen({ data, actions, onClose }: AddScreenProps) {
             <input type="search" autoFocus placeholder="Artist or album" aria-label="Search Discogs" value={query}
               onChange={(event) => setQuery(event.target.value)} />
           </label>
+          <button type="button" className="textLink" onClick={() => { setNote(""); setByHand(true); }}>
+            Not on Discogs? Add it by hand
+          </button>
           {note && <p className="errorNote small" role="alert">{note}</p>}
         </header>
         <div className="scrollArea">
@@ -56,6 +60,9 @@ export function AddScreen({ data, actions, onClose }: AddScreenProps) {
             )} />
         </div>
       </div>
+      {byHand && (
+        <AddSheet hit={null} records={data.records} onAdd={actions.addRecord} onClose={() => setByHand(false)} />
+      )}
       {adding && (
         <AddSheet hit={adding} records={data.records} onAdd={actions.addRecord} onClose={() => setAdding(null)} />
       )}

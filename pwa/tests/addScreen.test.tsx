@@ -72,6 +72,26 @@ describe("AddScreen", () => {
     });
   });
 
+  it("adds a record by hand without Discogs", async () => {
+    const actions = show();
+    fireEvent.click(screen.getByRole("button", { name: "Not on Discogs? Add it by hand" }));
+    const sheet = screen.getByRole("dialog", { name: "Add a record by hand" });
+    const add = within(sheet).getByRole("button", { name: "Add to collection" }) as HTMLButtonElement;
+    expect(add.disabled).toBe(true);
+    fireEvent.change(within(sheet).getByLabelText("Artist"), { target: { value: " Barış Manço " } });
+    fireEvent.change(within(sheet).getByLabelText("Album"), { target: { value: "Sözüm Meclisten Dışarı" } });
+    fireEvent.change(within(sheet).getByLabelText("Year"), { target: { value: "1981" } });
+    fireEvent.change(within(sheet).getByLabelText("Length (min)"), { target: { value: "38" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Rock" }));
+    fireEvent.change(within(sheet).getByLabelText("Tracklist (optional, one per line)"), { target: { value: "Alla Beni Pulla Beni\nArkadaşım Eşek\n" } });
+    await act(async () => { fireEvent.click(add); });
+    expect(getRelease).not.toHaveBeenCalled();
+    expect(actions.addRecord.mock.calls[0][0]).toMatchObject({
+      Artist: "Barış Manço", AlbumName: "Sözüm Meclisten Dışarı", Year: "1981", Genre: "Rock", DurationMins: 38, CoverURL: "",
+      Tracklist: "Alla Beni Pulla Beni | Arkadaşım Eşek", DiscogsID: null, SideMins: null,
+    });
+  });
+
   it("blocks adding a record that is already in the collection", async () => {
     getRelease.mockResolvedValue({ ...animals, ...hits[1], discogsId: 2 });
     const actions = show();

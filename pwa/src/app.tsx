@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { AccountSheet } from "./components/accountSheet";
 import { TabBar, type TabId } from "./components/tabBar";
 import { Toast, type ToastMessage } from "./components/toast";
+import { isPending, savedAtText } from "./lib/offline";
 import { githubLogin, isOwner } from "./lib/owner";
 import { isConfigured } from "./lib/supabaseClient";
 import { useActions } from "./lib/useActions";
@@ -85,6 +86,7 @@ function Shell({ login }: { login: string }) {
       {adding && state.status === "ready" && (
         <AddScreen data={state.data} actions={actions} onClose={() => setAdding(false)} />
       )}
+      {state.status === "ready" && <OfflineBar offlineSince={state.offlineSince} waiting={state.data.plays.filter(isPending).length} />}
       {toast && <Toast toast={toast} onDone={() => setToast(null)} />}
       <TabBar current={tab} onPick={pickTab} />
       {accountOpen && (
@@ -92,4 +94,14 @@ function Shell({ login }: { login: string }) {
       )}
     </div>
   );
+}
+
+// A slim line above the tab bar while the app shows what is kept on the phone, or has plays still to send
+function OfflineBar({ offlineSince, waiting }: { offlineSince: string | null; waiting: number }) {
+  if (!offlineSince && !waiting) return null;
+  const parts = [
+    offlineSince ? `Offline · your records as of ${savedAtText(offlineSince)}` : "",
+    waiting ? `${waiting} ${waiting === 1 ? "play" : "plays"} waiting to send` : "",
+  ].filter(Boolean);
+  return <div className="offlineBar" role="status">{parts.join(" · ")}</div>;
 }

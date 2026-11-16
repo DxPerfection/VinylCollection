@@ -73,7 +73,7 @@ export function editsFrom(release: ReleaseDetails, known: string[]): RecordEdits
 // The record info a Discogs release adds to a record, whether new or matched later
 export function recordInfo(release: ReleaseDetails): Pick<VinylRecord, "DiscogsID" | "Label" | "CatalogNumber" | "Format" | "Country" | "SideMins"> {
   return {
-    DiscogsID: release.discogsId,
+    DiscogsID: release.discogsId || null,
     Label: release.label || null,
     CatalogNumber: release.catalogNumber || null,
     Format: release.format || null,
@@ -81,6 +81,18 @@ export function recordInfo(release: ReleaseDetails): Pick<VinylRecord, "DiscogsI
     SideMins: release.sideMins || null,
   };
 }
+
+// A record typed in by hand: no Discogs release, so the cover link and tracklist come from what was typed
+export function handRelease(coverUrl: string, tracklist: string): ReleaseDetails {
+  return {
+    discogsId: 0, artist: "", album: "", year: "", genre: "", subGenre: "", coverUrl: coverUrl.trim(), label: "", catalogNumber: "",
+    format: "", country: "", tracks: tracklist.split(/\n|\|/).map((track) => track.trim()).filter(Boolean), durationMins: 0, sideMins: "",
+    coverFromSpotify: false, lengthFromSpotify: false,
+  };
+}
+
+export const blankEdits = (artist = "", album = ""): RecordEdits =>
+  ({ artist, album, year: "", genre: "", subGenre: "", durationMins: 0, condition: "New" });
 
 export function newInventoryRow(release: ReleaseDetails, edits: RecordEdits, records: VinylRecord[], known: string[]): VinylRecord {
   return {

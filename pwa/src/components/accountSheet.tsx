@@ -3,6 +3,7 @@ import { backupFiles, downloadText } from "../lib/backup";
 import { oldAppLink } from "../lib/config";
 import type { CollectionData } from "../lib/records";
 import { BottomSheet } from "./bottomSheet";
+import { RestoreSection } from "./restoreSection";
 import { ExternalIcon } from "./icons";
 
 interface AccountSheetProps {
@@ -33,6 +34,7 @@ export function AccountSheet({ login, data, onReload, onSignOut, onClose }: Acco
           </span>
         </section>
       )}
+      {data && <RestoreSection data={data} onRestored={onReload} />}
 
       <button type="button" className="secondaryButton" onClick={() => { onReload(); onClose(); }}>
         Load my records again

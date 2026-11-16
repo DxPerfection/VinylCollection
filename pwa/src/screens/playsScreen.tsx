@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { CoverArt } from "../components/coverArt";
 import { TrashIcon } from "../components/icons";
 import { minutesText } from "../lib/format";
+import { isPending } from "../lib/offline";
 import { dayHeading, type PlayView, recentPlays, timeOfDay } from "../lib/plays";
 import type { CollectionData, PlayRow } from "../lib/records";
 
@@ -46,6 +47,7 @@ export function PlaysScreen({ data, onDelete }: PlaysScreenProps) {
                   <div className="playAlbum">{play.AlbumName}</div>
                   <div className="muted small">
                     {[timeOfDay(when), record?.Artist, partLabel, minutesText(play.DurationMins)].filter(Boolean).join(" · ")}
+                    {isPending(play) && <span className="waitingTag"> · waiting to send</span>}
                   </div>
                 </div>
                 <button type="button" className="iconButton" aria-label={`Delete the play of ${play.AlbumName ?? "this record"}`}
