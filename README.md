@@ -18,6 +18,7 @@ Live at https://vinylcollection-beta.streamlit.app.
 - `migrations/` the SQL changes to run in Supabase, in order. A migration that creates a table must also
   `grant select, insert, update, delete` on it to `authenticated, service_role` (Supabase no longer does this for new
   tables) and add an "Owner only" policy like the ones in `003_owner_only.sql`.
+- `pwa/` the new installable phone app (React and TypeScript), growing alongside this one. See `pwa/README.md`.
 - `tests/` checks for the stats, picker, backup and restore, plus a test that draws every section with sample data.
 
 ## Running the tests
