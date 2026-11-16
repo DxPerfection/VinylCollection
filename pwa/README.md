@@ -33,6 +33,6 @@ Sign-in needs `http://localhost:5173/**` in Supabase under Authentication > URL 
 ## Hosting
 
 Cloudflare Pages builds this folder on every push: root directory `pwa`, build command `npm run build`, output
-directory `dist`, and the two variables from `.env.example` under Settings > Variables and Secrets. Never commit real
+directory `dist` (Node 22, pinned in `.node-version`), and the two variables from `.env.example` under Settings > Variables and Secrets. Never commit real
 values: the repository is public. The publishable key is fine in the built page because Row Level Security only
 answers the owner's account.
