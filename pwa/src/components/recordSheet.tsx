@@ -3,7 +3,7 @@ import { useState } from "react";
 
 import type { RecordView } from "../lib/collectionView";
 import { formatLastPlayed, minutesText, playCountText, stars, trackList, yearText } from "../lib/format";
-import { fromLocalInputValue, minutesFor, type PlayPart, playParts, toLocalInputValue } from "../lib/plays";
+import { fromLocalInputValue, minutesFor, partsFor, type PlayPart, toLocalInputValue } from "../lib/plays";
 import { BottomSheet } from "./bottomSheet";
 import { CoverArt } from "./coverArt";
 
@@ -12,17 +12,20 @@ interface RecordSheetProps {
   onClose: () => void;
   // Resolves true once the play is saved
   onLog: (record: RecordView, part: PlayPart, playedAt: Date) => Promise<boolean>;
+  onMatch: () => void;
 }
 
-export function RecordSheet({ record, onClose, onLog }: RecordSheetProps) {
+export function RecordSheet({ record, onClose, onLog, onMatch }: RecordSheetProps) {
   const [part, setPart] = useState<PlayPart>("Full album");
   const [earlier, setEarlier] = useState(false);
   const [earlierValue, setEarlierValue] = useState(() => toLocalInputValue(new Date(Date.now() - 60 * 60 * 1000)));
   const [saving, setSaving] = useState(false);
+  const parts = partsFor(record);
 
   const details = [record.Genre, yearText(record.Year), minutesText(record.DurationMins)].filter(Boolean).join(" · ");
   const tracks = trackList(record.Tracklist);
   const extras = [record.SubGenre, record.Condition ? `Condition: ${record.Condition}` : ""].filter(Boolean);
+  const pressing = [record.Label, record.CatalogNumber, record.Format, record.Country].filter(Boolean).join(" · ");
 
   const playedAt = earlier ? fromLocalInputValue(earlierValue) : new Date();
   const timeProblem = earlier && (!playedAt ? "Pick a date and time." : playedAt.getTime() > Date.now() ? "That time hasn't happened yet." : "");
@@ -55,8 +58,9 @@ export function RecordSheet({ record, onClose, onLog }: RecordSheetProps) {
         {record.lastPlayed && <span>Last played {formatLastPlayed(record.lastPlayed)}</span>}
       </div>
 
-      <div className="segmented" role="group" aria-label="What did you play?">
-        {playParts.map((option) => (
+      <div className="segmented" role="group" aria-label="What did you play?"
+        style={{ gridTemplateColumns: `repeat(${Math.min(parts.length, 3)}, minmax(0, 1fr))` }}>
+        {parts.map((option) => (
           <button key={option} type="button" className={option === part ? "segment segmentActive" : "segment"}
             aria-pressed={option === part} onClick={() => setPart(option)}>
             {option}
@@ -87,6 +91,7 @@ export function RecordSheet({ record, onClose, onLog }: RecordSheetProps) {
       </button>
 
       {extras.length > 0 && <div className="muted small">{extras.join(" · ")}</div>}
+      {pressing && <div className="muted small">{pressing}</div>}
 
       {tracks.length > 0 && (
         <details className="trackList">
@@ -95,6 +100,12 @@ export function RecordSheet({ record, onClose, onLog }: RecordSheetProps) {
             {tracks.map((track, index) => <li key={index}>{track}</li>)}
           </ol>
         </details>
+      )}
+
+      {record.DiscogsID ? (
+        <button type="button" className="linkButton alignStart" onClick={onMatch}>Change the Discogs match</button>
+      ) : (
+        <button type="button" className="secondaryButton" onClick={onMatch}>Match on Discogs</button>
       )}
     </BottomSheet>
   );

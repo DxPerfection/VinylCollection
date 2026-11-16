@@ -7,9 +7,16 @@ this one covers everything. It reads the same Supabase tables, behind the same G
 
 - GitHub sign-in (only the owner's account gets in) that stays signed in after closing the app
 - Collection: cover grid, search, genre chips, sort, and a card per record with plays, last played and the tracklist
-- Logging a play from the record card: Full album, Side A or Side B (half the album's length for now), just now or
+- Logging a play from the record card: Full album or a side (its saved length, else half the album), just now or
   earlier, with Undo
 - Plays: recent plays grouped by day, each with delete (and Undo)
+- Adding records (the + button): Discogs search as you type, then Add (check and change the filled-in details) or
+  Want. Discogs gives the artist, album, year, genre, styles, tracklist and record info (label, catalogue number,
+  format, country, side lengths); Spotify gives the cover and length. The keys live in the `recordLookup` Supabase
+  function (see `../supabase/README.md`), never in this app.
+- Match on Discogs: saves the record info for records added before, picked by you; a "No Discogs info yet" chip
+  lists them
+- Sides A to D on the record card when a record's side lengths are saved
 - The bottom tab bar; tabs that are not built yet link to the same section of the Streamlit app
 - Installing to the home screen (app manifest, icons and a service worker)
 

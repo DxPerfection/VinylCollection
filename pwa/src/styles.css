@@ -197,3 +197,31 @@ a { color: var(--accent); }
   justify-content: center; flex: none; border-radius: 10px;
 }
 .fullWidth { width: 100%; margin-top: 12px; }
+
+/* Adding records */
+.headerButtons { display: flex; gap: 10px; }
+.roundPrimary { background: var(--accent); border-color: var(--accent); color: var(--accentInk); }
+.overlayScreen { position: fixed; inset: 0; background: var(--bg); z-index: 15; display: flex; flex-direction: column; }
+.searchBoxStrong { border: 1px solid var(--accent); height: 48px; }
+.resultList { list-style: none; margin: 0; padding: 0; }
+.resultRow { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.resultCover { width: 56px; flex: none; border-radius: 8px; }
+.resultText { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.resultButtons { display: flex; flex-direction: column; gap: 6px; flex: none; }
+.smallButton {
+  min-height: 36px; padding: 0 14px; border-radius: 9px; border: 1px solid var(--lineStrong); background: transparent;
+  font-size: 13px; font-weight: 600;
+}
+.smallPrimary { border: none; background: var(--accent); color: var(--accentInk); }
+.smallButton:disabled { opacity: 0.6; }
+.tiny { font-size: 12px; line-height: 1.35; }
+.formGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); min-width: 0; }
+.field input {
+  height: 44px; border-radius: 10px; border: 1px solid var(--lineStrong); background: var(--surface); color: var(--text);
+  padding: 0 12px; font-size: 16px; min-width: 0; width: 100%;
+}
+.fieldGroup { display: flex; flex-direction: column; gap: 8px; }
+.fieldLabel { font-size: 13px; color: var(--muted); }
+.chipWrap { display: flex; flex-wrap: wrap; gap: 8px; }
+.alignStart { align-self: flex-start; padding: 0; }

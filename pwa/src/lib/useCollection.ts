@@ -1,7 +1,7 @@
 // Loads the records and plays, and loads them again when the app comes back to the front after a while
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { type CollectionData, fetchCollection, type PlayRow } from "./records";
+import { type CollectionData, fetchCollection } from "./records";
 import { getSupabase } from "./supabaseClient";
 
 export type CollectionState =
@@ -14,8 +14,8 @@ const staleAfterMs = 10 * 60 * 1000;
 export interface CollectionHandle {
   state: CollectionState;
   reload: () => void;
-  // Changes the plays on screen straight after a save, without waiting for a reload
-  updatePlays: (change: (plays: PlayRow[]) => PlayRow[]) => void;
+  // Changes what is on screen straight after a save, without waiting for a reload
+  updateData: (change: (data: CollectionData) => CollectionData) => void;
 }
 
 export function useCollection(): CollectionHandle {
@@ -43,11 +43,9 @@ export function useCollection(): CollectionHandle {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [load]);
 
-  const updatePlays = useCallback((change: (plays: PlayRow[]) => PlayRow[]) => {
-    setState((current) => current.status === "ready"
-      ? { status: "ready", data: { ...current.data, plays: change(current.data.plays) } }
-      : current);
+  const updateData = useCallback((change: (data: CollectionData) => CollectionData) => {
+    setState((current) => current.status === "ready" ? { status: "ready", data: change(current.data) } : current);
   }, []);
 
-  return { state, reload: () => load(false), updatePlays };
+  return { state, reload: () => load(false), updateData };
 }

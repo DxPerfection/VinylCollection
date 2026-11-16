@@ -77,6 +77,8 @@ export interface CollectionFilter {
   search: string;
   genre: string | null;
   sort: SortOption;
+  // Only records not matched to a Discogs release yet
+  unmatchedOnly?: boolean;
 }
 
 // Records with nothing to sort by (never played, no year, not rated) always go last
@@ -84,6 +86,7 @@ export function filterAndSort(records: RecordView[], filter: CollectionFilter): 
   const query = filter.search.trim().toLowerCase();
   const shown = records.filter((record) => {
     if (filter.genre && String(record.Genre ?? "").trim() !== filter.genre) return false;
+    if (filter.unmatchedOnly && record.DiscogsID) return false;
     if (!query) return true;
     return nameKey(record.AlbumName).includes(query) || nameKey(record.Artist).includes(query);
   });

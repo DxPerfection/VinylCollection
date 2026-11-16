@@ -9,8 +9,9 @@ afterEach(cleanup);
 const tileAlbums = () => Array.from(document.querySelectorAll(".tileAlbum")).map((tile) => tile.textContent);
 
 describe("CollectionScreen", () => {
-  const show = (onLog = vi.fn(async () => true)) =>
-    render(<CollectionScreen data={{ records: sampleRecords, plays: samplePlays }} onOpenAccount={() => {}} onLog={onLog} />);
+  const show = (onLog = vi.fn(async () => true), matchRecord = vi.fn(async () => true)) =>
+    render(<CollectionScreen data={{ records: sampleRecords, plays: samplePlays, wants: [] }} onOpenAccount={() => {}}
+      onOpenAdd={() => {}} actions={{ logPlay: onLog, matchRecord }} />);
 
   it("shows every record, newest first, with the count", () => {
     show();
@@ -90,5 +91,15 @@ describe("CollectionScreen", () => {
     fireEvent.click(screen.getByText("Discovery"));
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "I listened to this" })); });
     expect(screen.getByRole("dialog", { name: "Discovery" })).toBeTruthy();
+  });
+
+  it("filters to records without Discogs info, and offers Match on Discogs", () => {
+    render(<CollectionScreen data={{ records: [...sampleRecords.slice(1), { ...sampleRecords[0], DiscogsID: 9, Label: "Parlophone" }], plays: [], wants: [] }}
+      onOpenAccount={() => {}} onOpenAdd={() => {}} actions={{ logPlay: vi.fn(), matchRecord: vi.fn() }} />);
+    fireEvent.click(screen.getByRole("button", { name: "No Discogs info yet (3)" }));
+    expect(tileAlbums()).not.toContain("The Bends");
+    fireEvent.click(screen.getByText("Discovery"));
+    fireEvent.click(screen.getByRole("button", { name: "Match on Discogs" }));
+    expect(screen.getByRole("dialog", { name: "Match Discovery on Discogs" })).toBeTruthy();
   });
 });
