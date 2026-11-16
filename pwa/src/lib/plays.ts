@@ -4,17 +4,36 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseStoredTime, toNumber } from "./format";
 import type { PlayRow, VinylRecord } from "./records";
 
-export type PlayPart = "Full album" | "Side A" | "Side B";
-export const playParts: PlayPart[] = ["Full album", "Side A", "Side B"];
+// "Full album", or a side such as "Side A" or "Side D"
+export type PlayPart = string;
 
 // Used when a record has no length saved, the same as the Streamlit app
 export const fallbackMinutes = 45;
 
-// A side counts as half the album until real side lengths come from Discogs
-export function minutesFor(record: VinylRecord, part: PlayPart): number {
+function albumMinutes(record: VinylRecord): number {
   const full = toNumber(record.DurationMins);
-  const albumMinutes = full && full > 0 ? Math.round(full) : fallbackMinutes;
-  return part === "Full album" ? albumMinutes : Math.max(1, Math.round(albumMinutes / 2));
+  return full && full > 0 ? Math.round(full) : fallbackMinutes;
+}
+
+// Minutes per side: the saved side lengths from Discogs ("A:24|B:25|C:20|D:22"), or two halves of the album
+export function sidesOf(record: VinylRecord): { side: string; minutes: number }[] {
+  const saved = String(record.SideMins ?? "").split("|").map((entry) => {
+    const [side, minutes] = entry.split(":");
+    return { side: side?.trim().toUpperCase() ?? "", minutes: Number(minutes) };
+  }).filter((entry) => /^[A-Z]$/.test(entry.side) && entry.minutes > 0);
+  if (saved.length >= 2) return saved;
+  const half = Math.max(1, Math.round(albumMinutes(record) / 2));
+  return [{ side: "A", minutes: half }, { side: "B", minutes: half }];
+}
+
+export function partsFor(record: VinylRecord): PlayPart[] {
+  return ["Full album", ...sidesOf(record).map(({ side }) => `Side ${side}`)];
+}
+
+export function minutesFor(record: VinylRecord, part: PlayPart): number {
+  if (part === "Full album") return albumMinutes(record);
+  const side = part.replace(/^Side /, "");
+  return sidesOf(record).find((entry) => entry.side === side)?.minutes ?? Math.max(1, Math.round(albumMinutes(record) / 2));
 }
 
 // Plays are stored in UTC, to the minute, in the same shape the Streamlit app writes
@@ -51,13 +70,15 @@ export interface PlayView {
   partLabel: string;
 }
 
-// Which part was played is not stored, so it is read from the minutes: the whole album or half of it
+// Which part was played is not stored, so it is read from the minutes: the whole album, a side with its own
+// saved length, or "One side" when the sides are just halves (or two sides have the same length)
 export function partLabel(play: PlayRow, record: VinylRecord | undefined): string {
   const minutes = toNumber(play.DurationMins);
   if (!record || minutes === null) return "";
   if (minutes === minutesFor(record, "Full album")) return "Full album";
-  if (minutes === minutesFor(record, "Side A")) return "One side";
-  return "";
+  const matches = sidesOf(record).filter((entry) => entry.minutes === minutes);
+  if (matches.length === 1 && record.SideMins) return `Side ${matches[0].side}`;
+  return matches.length ? "One side" : "";
 }
 
 const nameKey = (value: unknown) => String(value ?? "").trim().toLowerCase();

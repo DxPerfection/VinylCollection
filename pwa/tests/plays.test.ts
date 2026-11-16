@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it } from "vitest";
 
 import {
+  partsFor, sidesOf,
   dayHeading, deletePlay, fromLocalInputValue, insertPlay, minutesFor, newPlayRow, partLabel, recentPlays, toLocalInputValue,
   toStoredTime,
 } from "../src/lib/plays";
@@ -14,6 +15,20 @@ describe("minutesFor", () => {
     expect(minutesFor(bends, "Side A")).toBe(24);
     expect(minutesFor(sampleRecord(1, { DurationMins: 57 }), "Side B")).toBe(29);
     expect(minutesFor(sampleRecord(1, { DurationMins: null }), "Full album")).toBe(45);
+  });
+});
+
+describe("sides", () => {
+  it("uses saved side lengths, including four sides, else two halves", () => {
+    const double = sampleRecord(1, { DurationMins: 148, SideMins: "A:37|B:36|C:38|D:37" });
+    expect(partsFor(double)).toEqual(["Full album", "Side A", "Side B", "Side C", "Side D"]);
+    expect(minutesFor(double, "Side C")).toBe(38);
+    expect(sidesOf(sampleRecord(2, { DurationMins: 41, SideMins: null }))).toEqual([{ side: "A", minutes: 21 }, { side: "B", minutes: 21 }]);
+    expect(sidesOf(sampleRecord(3, { DurationMins: 40, SideMins: "junk" }))).toHaveLength(2);
+  });
+  it("names the side in the Plays list when lengths are saved", () => {
+    const record = sampleRecord(1, { DurationMins: 57, SideMins: "A:35|B:22" });
+    expect(partLabel({ id: 1, Date: "", AlbumName: "", DurationMins: 22 }, record)).toBe("Side B");
   });
 });
 

@@ -2,29 +2,34 @@
 import { useMemo, useState } from "react";
 
 import { CoverArt } from "../components/coverArt";
-import { SearchIcon, SortIcon, UserIcon } from "../components/icons";
+import { PlusIcon, SearchIcon, SortIcon, UserIcon } from "../components/icons";
+import { MatchSheet } from "../components/matchSheet";
 import { RecordSheet } from "../components/recordSheet";
 import {
   type CollectionFilter, filterAndSort, genresInUse, linkPlays, type RecordView, type SortOption, sortOptions,
 } from "../lib/collectionView";
 import { stars, yearText } from "../lib/format";
-import type { PlayPart } from "../lib/plays";
 import type { CollectionData } from "../lib/records";
+import type { Actions } from "../lib/useActions";
 
 interface CollectionScreenProps {
   data: CollectionData;
   onOpenAccount: () => void;
-  onLog: (record: RecordView, part: PlayPart, playedAt: Date) => Promise<boolean>;
+  onOpenAdd: () => void;
+  actions: Pick<Actions, "logPlay" | "matchRecord">;
 }
 
-export function CollectionScreen({ data, onOpenAccount, onLog }: CollectionScreenProps) {
+export function CollectionScreen({ data, onOpenAccount, onOpenAdd, actions }: CollectionScreenProps) {
   const [filter, setFilter] = useState<CollectionFilter>({ search: "", genre: null, sort: "Recently added" });
   const [openId, setOpenId] = useState<number | null>(null);
+  const [matchingId, setMatchingId] = useState<number | null>(null);
 
   const records = useMemo(() => linkPlays(data.records, data.plays), [data]);
   const genres = useMemo(() => genresInUse(data.records), [data]);
   const shown = useMemo(() => filterAndSort(records, filter), [records, filter]);
   const openRecord = openId === null ? undefined : records.find((record) => Number(record.ID) === openId);
+  const matchingRecord = matchingId === null ? undefined : records.find((record) => Number(record.ID) === matchingId);
+  const unmatchedCount = records.filter((record) => !record.DiscogsID).length;
 
   const total = records.length;
   const countText = shown.length === total
@@ -39,9 +44,14 @@ export function CollectionScreen({ data, onOpenAccount, onLog }: CollectionScree
             <h1>Collection</h1>
             <div className="muted small">{countText}</div>
           </div>
-          <button type="button" className="roundButton" aria-label="Account" onClick={onOpenAccount}>
-            <UserIcon />
-          </button>
+          <div className="headerButtons">
+            <button type="button" className="roundButton" aria-label="Account" onClick={onOpenAccount}>
+              <UserIcon />
+            </button>
+            <button type="button" className="roundButton roundPrimary" aria-label="Add a record" onClick={onOpenAdd}>
+              <PlusIcon />
+            </button>
+          </div>
         </div>
 
         <label className="searchBox">
@@ -57,6 +67,12 @@ export function CollectionScreen({ data, onOpenAccount, onLog }: CollectionScree
               {genre ?? "All"}
             </button>
           ))}
+          {unmatchedCount > 0 && (
+            <button type="button" className={filter.unmatchedOnly ? "chip chipActive" : "chip"} aria-pressed={Boolean(filter.unmatchedOnly)}
+              onClick={() => setFilter({ ...filter, unmatchedOnly: !filter.unmatchedOnly })}>
+              No Discogs info yet ({unmatchedCount})
+            </button>
+          )}
         </div>
 
         <label className="sortPicker">
@@ -78,7 +94,13 @@ export function CollectionScreen({ data, onOpenAccount, onLog }: CollectionScree
         </div>
       </div>
 
-      {openRecord && <RecordSheet record={openRecord} onClose={() => setOpenId(null)} onLog={onLog} />}
+      {openRecord && (
+        <RecordSheet record={openRecord} onClose={() => setOpenId(null)} onLog={actions.logPlay}
+          onMatch={() => { setOpenId(null); setMatchingId(Number(openRecord.ID)); }} />
+      )}
+      {matchingRecord && (
+        <MatchSheet record={matchingRecord} onMatch={actions.matchRecord} onClose={() => setMatchingId(null)} />
+      )}
     </div>
   );
 }
