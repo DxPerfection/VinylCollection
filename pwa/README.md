@@ -7,6 +7,9 @@ this one covers everything. It reads the same Supabase tables, behind the same G
 
 - GitHub sign-in (only the owner's account gets in) that stays signed in after closing the app
 - Collection: cover grid, search, genre chips, sort, and a card per record with plays, last played and the tracklist
+- Logging a play from the record card: Full album, Side A or Side B (half the album's length for now), just now or
+  earlier, with Undo
+- Plays: recent plays grouped by day, each with delete (and Undo)
 - The bottom tab bar; tabs that are not built yet link to the same section of the Streamlit app
 - Installing to the home screen (app manifest, icons and a service worker)
 

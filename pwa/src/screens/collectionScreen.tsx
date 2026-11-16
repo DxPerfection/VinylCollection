@@ -8,14 +8,16 @@ import {
   type CollectionFilter, filterAndSort, genresInUse, linkPlays, type RecordView, type SortOption, sortOptions,
 } from "../lib/collectionView";
 import { stars, yearText } from "../lib/format";
+import type { PlayPart } from "../lib/plays";
 import type { CollectionData } from "../lib/records";
 
 interface CollectionScreenProps {
   data: CollectionData;
   onOpenAccount: () => void;
+  onLog: (record: RecordView, part: PlayPart, playedAt: Date) => Promise<boolean>;
 }
 
-export function CollectionScreen({ data, onOpenAccount }: CollectionScreenProps) {
+export function CollectionScreen({ data, onOpenAccount, onLog }: CollectionScreenProps) {
   const [filter, setFilter] = useState<CollectionFilter>({ search: "", genre: null, sort: "Recently added" });
   const [openId, setOpenId] = useState<number | null>(null);
 
@@ -76,7 +78,7 @@ export function CollectionScreen({ data, onOpenAccount }: CollectionScreenProps)
         </div>
       </div>
 
-      {openRecord && <RecordSheet record={openRecord} onClose={() => setOpenId(null)} />}
+      {openRecord && <RecordSheet record={openRecord} onClose={() => setOpenId(null)} onLog={onLog} />}
     </div>
   );
 }

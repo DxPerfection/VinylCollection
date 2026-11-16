@@ -1,15 +1,40 @@
-// The card that opens when you tap a record: cover, details, how often you have played it, and the tracklist
+// The card that opens when you tap a record: details, how often you have played it, the tracklist, and logging a play
+import { useState } from "react";
+
 import type { RecordView } from "../lib/collectionView";
-import { oldAppLink } from "../lib/config";
 import { formatLastPlayed, minutesText, playCountText, stars, trackList, yearText } from "../lib/format";
+import { fromLocalInputValue, minutesFor, type PlayPart, playParts, toLocalInputValue } from "../lib/plays";
 import { BottomSheet } from "./bottomSheet";
 import { CoverArt } from "./coverArt";
-import { ExternalIcon } from "./icons";
 
-export function RecordSheet({ record, onClose }: { record: RecordView; onClose: () => void }) {
+interface RecordSheetProps {
+  record: RecordView;
+  onClose: () => void;
+  // Resolves true once the play is saved
+  onLog: (record: RecordView, part: PlayPart, playedAt: Date) => Promise<boolean>;
+}
+
+export function RecordSheet({ record, onClose, onLog }: RecordSheetProps) {
+  const [part, setPart] = useState<PlayPart>("Full album");
+  const [earlier, setEarlier] = useState(false);
+  const [earlierValue, setEarlierValue] = useState(() => toLocalInputValue(new Date(Date.now() - 60 * 60 * 1000)));
+  const [saving, setSaving] = useState(false);
+
   const details = [record.Genre, yearText(record.Year), minutesText(record.DurationMins)].filter(Boolean).join(" · ");
   const tracks = trackList(record.Tracklist);
   const extras = [record.SubGenre, record.Condition ? `Condition: ${record.Condition}` : ""].filter(Boolean);
+
+  const playedAt = earlier ? fromLocalInputValue(earlierValue) : new Date();
+  const timeProblem = earlier && (!playedAt ? "Pick a date and time." : playedAt.getTime() > Date.now() ? "That time hasn't happened yet." : "");
+
+  const log = async () => {
+    const when = earlier ? playedAt : new Date();
+    if (!when || timeProblem) return;
+    setSaving(true);
+    const saved = await onLog(record, part, when);
+    setSaving(false);
+    if (saved) onClose();
+  };
 
   return (
     <BottomSheet label={record.AlbumName ?? "Record"} onClose={onClose}>
@@ -30,6 +55,37 @@ export function RecordSheet({ record, onClose }: { record: RecordView; onClose: 
         {record.lastPlayed && <span>Last played {formatLastPlayed(record.lastPlayed)}</span>}
       </div>
 
+      <div className="segmented" role="group" aria-label="What did you play?">
+        {playParts.map((option) => (
+          <button key={option} type="button" className={option === part ? "segment segmentActive" : "segment"}
+            aria-pressed={option === part} onClick={() => setPart(option)}>
+            {option}
+          </button>
+        ))}
+      </div>
+
+      <div className="whenRow">
+        <span className="muted small">{minutesFor(record, part)} min</span>
+        <div className="whenChoice" role="group" aria-label="When">
+          <button type="button" className={earlier ? "linkButton" : "linkButton linkButtonActive"} aria-pressed={!earlier}
+            onClick={() => setEarlier(false)}>Just now</button>
+          <button type="button" className={earlier ? "linkButton linkButtonActive" : "linkButton"} aria-pressed={earlier}
+            onClick={() => setEarlier(true)}>Earlier</button>
+        </div>
+      </div>
+      {earlier && (
+        <label className="timeField">
+          <span className="muted small">When did you play it?</span>
+          <input type="datetime-local" value={earlierValue} max={toLocalInputValue(new Date())}
+            onChange={(event) => setEarlierValue(event.target.value)} />
+          {timeProblem && <span className="errorNote small" role="alert">{timeProblem}</span>}
+        </label>
+      )}
+
+      <button type="button" className="primaryButton bigButton" disabled={saving || Boolean(timeProblem)} onClick={log}>
+        {saving ? "Saving…" : "I listened to this"}
+      </button>
+
       {extras.length > 0 && <div className="muted small">{extras.join(" · ")}</div>}
 
       {tracks.length > 0 && (
@@ -40,11 +96,6 @@ export function RecordSheet({ record, onClose }: { record: RecordView; onClose: 
           </ol>
         </details>
       )}
-
-      <a className="secondaryButton" href={oldAppLink("log")} target="_blank" rel="noreferrer">
-        Log a listen in the current app <ExternalIcon />
-      </a>
-      <p className="muted small centered">Logging from this card, with Side A and Side B, comes in the next update.</p>
     </BottomSheet>
   );
 }
