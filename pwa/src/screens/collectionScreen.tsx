@@ -1,5 +1,5 @@
 // Collection: your records as a cover grid, with search, genre chips and a sort
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { CoverArt } from "../components/coverArt";
 import { PlusIcon, SearchIcon, SortIcon, UserIcon } from "../components/icons";
@@ -9,6 +9,7 @@ import {
 } from "../lib/collectionView";
 import { stars, yearText } from "../lib/format";
 import type { CollectionData } from "../lib/records";
+import { useFoldOnScroll } from "../lib/useFoldOnScroll";
 
 interface CollectionScreenProps {
   data: CollectionData;
@@ -20,6 +21,8 @@ interface CollectionScreenProps {
 export function CollectionScreen({ data, onOpenAccount, onOpenAdd, actions }: CollectionScreenProps) {
   const [filter, setFilter] = useState<CollectionFilter>({ search: "", genre: null, sort: "Recently added" });
   const [openId, setOpenId] = useState<number | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const folded = useFoldOnScroll(scroller);
 
   const records = useMemo(() => linkPlays(data.records, data.plays), [data]);
   const genres = useMemo(() => genresInUse(data.records), [data]);
@@ -33,11 +36,11 @@ export function CollectionScreen({ data, onOpenAccount, onOpenAdd, actions }: Co
 
   return (
     <div className="screen">
-      <header className="screenHeader">
+      <header className={folded ? "screenHeader collectionHeader folded" : "screenHeader collectionHeader"}>
         <div className="titleRow">
-          <div>
+          <div className="titleText">
             <h1>Collection</h1>
-            <div className="muted small">{countText}</div>
+            <span className="muted small">{countText}</span>
           </div>
           <div className="headerButtons">
             <button type="button" className="roundButton" aria-label="Account" onClick={onOpenAccount}>
@@ -49,40 +52,44 @@ export function CollectionScreen({ data, onOpenAccount, onOpenAdd, actions }: Co
           </div>
         </div>
 
-        <label className="searchBox">
-          <SearchIcon />
-          <input type="search" placeholder="Search artist or album" aria-label="Search artist or album"
-            value={filter.search} onChange={(event) => setFilter({ ...filter, search: event.target.value })} />
-        </label>
-
-        <div className="chipRow" role="group" aria-label="Genre">
-          {[null, ...genres].map((genre) => (
-            <button key={genre ?? "all"} type="button" className={filter.genre === genre ? "chip chipActive" : "chip"}
-              aria-pressed={filter.genre === genre} onClick={() => setFilter({ ...filter, genre })}>
-              {genre ?? "All"}
-            </button>
-          ))}
-          {unmatchedCount > 0 && (
-            <button type="button" className={filter.unmatchedOnly ? "chip chipActive" : "chip"} aria-pressed={Boolean(filter.unmatchedOnly)}
-              onClick={() => setFilter({ ...filter, unmatchedOnly: !filter.unmatchedOnly })}>
-              No Discogs info yet ({unmatchedCount})
-            </button>
-          )}
+        <div className="foldAway" aria-hidden={folded || undefined} inert={folded || undefined}>
+          <div className="foldInner">
+            <div className="searchRow">
+              <label className="searchBox">
+                <SearchIcon />
+                <input type="search" placeholder="Artist or album" aria-label="Search artist or album"
+                  value={filter.search} onChange={(event) => setFilter({ ...filter, search: event.target.value })} />
+              </label>
+              <label className="sortButton">
+                <SortIcon />
+                <span className="visuallyHidden">Sort</span>
+                <select value={filter.sort} onChange={(event) => setFilter({ ...filter, sort: event.target.value as SortOption })}>
+                  {sortOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
+            </div>
+            <div className="chipRow" role="group" aria-label="Genre">
+              {[null, ...genres].map((genre) => (
+                <button key={genre ?? "all"} type="button" className={filter.genre === genre ? "chip chipActive" : "chip"}
+                  aria-pressed={filter.genre === genre} onClick={() => setFilter({ ...filter, genre })}>
+                  {genre ?? "All"}
+                </button>
+              ))}
+              {unmatchedCount > 0 && (
+                <button type="button" className={filter.unmatchedOnly ? "chip chipActive" : "chip"} aria-pressed={Boolean(filter.unmatchedOnly)}
+                  onClick={() => setFilter({ ...filter, unmatchedOnly: !filter.unmatchedOnly })}>
+                  No Discogs info yet ({unmatchedCount})
+                </button>
+              )}
+            </div>
+          </div>
         </div>
-
-        <label className="sortPicker">
-          <SortIcon />
-          <span className="visuallyHidden">Sort</span>
-          <select value={filter.sort} onChange={(event) => setFilter({ ...filter, sort: event.target.value as SortOption })}>
-            {sortOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-          </select>
-        </label>
       </header>
 
-      <div className="scrollArea">
+      <div className="scrollArea" ref={scroller}>
         {total === 0 && <p className="emptyNote">Your shelf is empty. Tap + to add your first record.</p>}
         {total > 0 && shown.length === 0 && <p className="emptyNote">No records match your search.</p>}
-        <div className="recordGrid">
+        <div className="recordGrid compactGrid">
           {shown.map((record) => (
             <RecordTile key={record.ID} record={record} onOpen={() => setOpenId(Number(record.ID))} />
           ))}
