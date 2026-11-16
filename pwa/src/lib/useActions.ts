@@ -6,6 +6,7 @@ import type { ToastMessage } from "../components/toast";
 import { deleteRecord, deleteWant, insertRecord, insertWant, recordInfo, updateRecord } from "./addRecord";
 import type { RecordView } from "./collectionView";
 import type { ReleaseDetails } from "./lookup";
+import { linkPastPlays, needsPlayLink } from "./manage";
 import { deletePlay, insertPlay, newPlayRow, type PlayPart } from "./plays";
 import type { CollectionData, PlayRow, VinylRecord, WantRow } from "./records";
 import { getSupabase } from "./supabaseClient";
@@ -19,6 +20,9 @@ export interface Actions {
   addRecord: (row: VinylRecord) => Promise<boolean>;
   addWant: (row: Omit<WantRow, "id">) => Promise<boolean>;
   matchRecord: (record: VinylRecord, release: ReleaseDetails) => Promise<boolean>;
+  rateRecord: (record: VinylRecord, rating: number | null) => Promise<boolean>;
+  editRecord: (record: VinylRecord, changes: Partial<VinylRecord>, records: VinylRecord[]) => Promise<boolean>;
+  removeRecord: (record: VinylRecord) => Promise<boolean>;
 }
 
 export function useActions(updateData: UpdateData, showToast: ShowToast): Actions {
@@ -147,5 +151,73 @@ export function useActions(updateData: UpdateData, showToast: ShowToast): Action
     }
   }, [showError, showToast, updateRecords]);
 
-  return { logPlay, removePlay, addRecord, addWant, matchRecord };
+  const replaceRecord = useCallback((saved: VinylRecord) =>
+    updateRecords((records) => records.map((item) => Number(item.ID) === Number(saved.ID) ? saved : item)), [updateRecords]);
+
+  // Saves the given columns and offers Undo, which puts the old values of the same columns back
+  const saveChanges = useCallback(async (record: VinylRecord, changes: Partial<VinylRecord>, message: string, failure: string) => {
+    const before = Object.fromEntries(Object.keys(changes).map((key) => [key, record[key as keyof VinylRecord] ?? null]));
+    try {
+      const saved = await updateRecord(getSupabase(), Number(record.ID), changes);
+      replaceRecord(saved);
+      showToast(message, {
+        undo: async () => {
+          try {
+            replaceRecord(await updateRecord(getSupabase(), Number(record.ID), before));
+          } catch (error) {
+            showError("Couldn't undo", error);
+          }
+        },
+      });
+      return true;
+    } catch (error) {
+      showError(failure, error);
+      return false;
+    }
+  }, [replaceRecord, showError, showToast]);
+
+  const rateRecord = useCallback((record: VinylRecord, rating: number | null) =>
+    saveChanges(record, { Rating: rating }, rating ? `Rated ${record.AlbumName} ${rating} ${rating === 1 ? "star" : "stars"}`
+      : `Took the rating off ${record.AlbumName}`, "Couldn't save the rating"), [saveChanges]);
+
+  const editRecord = useCallback(async (record: VinylRecord, changes: Partial<VinylRecord>, records: VinylRecord[]) => {
+    if (!Object.keys(changes).length) return true;
+    if (changes.AlbumName !== undefined && needsPlayLink(record, String(changes.AlbumName), records)) {
+      try {
+        await linkPastPlays(getSupabase(), record);
+        updatePlays((plays) => plays.map((play) => play.AlbumName === record.AlbumName && (play.VinylID === null || play.VinylID === undefined)
+          ? { ...play, VinylID: Number(record.ID) } : play));
+      } catch (error) {
+        showError("Couldn't keep the old plays linked, so nothing was changed", error);
+        return false;
+      }
+    }
+    return saveChanges(record, changes, `Saved ${changes.AlbumName ?? record.AlbumName}`, "Couldn't save the changes");
+  }, [saveChanges, showError, updatePlays]);
+
+  // Plays stay in the history; Undo puts the record back under the same ID, so they link up again
+  const removeRecord = useCallback(async (record: VinylRecord) => {
+    const { playCount: _plays, lastPlayed: _last, rating: _rating, ...row } = record as VinylRecord & Record<string, unknown>;
+    try {
+      await deleteRecord(getSupabase(), Number(record.ID));
+      updateRecords((records) => records.filter((item) => Number(item.ID) !== Number(record.ID)));
+      showToast(`Deleted ${record.AlbumName}`, {
+        undo: async () => {
+          try {
+            const saved = await insertRecord(getSupabase(), row as VinylRecord);
+            updateRecords((records) => [...records, saved]);
+            showToast(`Put ${record.AlbumName} back`);
+          } catch (error) {
+            showError("Couldn't put it back", error);
+          }
+        },
+      });
+      return true;
+    } catch (error) {
+      showError("Couldn't delete the record", error);
+      return false;
+    }
+  }, [showError, showToast, updateRecords]);
+
+  return { logPlay, removePlay, addRecord, addWant, matchRecord, rateRecord, editRecord, removeRecord };
 }

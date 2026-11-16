@@ -27,6 +27,8 @@ def readBackupCsv(uploadedFile, requiredColumns, noun):
 
 
 recordTextColumns = ["Artist", "AlbumName", "Genre", "SubGenre", "Year", "CoverURL", "Condition", "Tracklist"]
+# Record info from Discogs (migration 006), restored when both the file and the app have the column
+recordInfoColumns = ["Label", "CatalogNumber", "Format", "Country", "SideMins"]
 
 
 def planRecordRestore(fileDf, currentDf):
@@ -51,6 +53,12 @@ def planRecordRestore(fileDf, currentDf):
             rating = toNumber(raw.get("Rating"))
             if "Rating" in currentDf.columns and rating in range(1, 6):
                 row["Rating"] = rating
+            discogsId = toNumber(raw.get("DiscogsID"))
+            if "DiscogsID" in currentDf.columns and isinstance(discogsId, int) and discogsId > 0:
+                row["DiscogsID"] = discogsId
+            for column in recordInfoColumns:
+                if column in currentDf.columns and str(raw.get(column, "")).strip():
+                    row[column] = raw[column]
             toAdd.append(row)
             seenIds.add(recordId)
     return toAdd, skipped

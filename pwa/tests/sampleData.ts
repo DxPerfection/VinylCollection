@@ -1,4 +1,7 @@
 // A small made-up collection for the tests
+import { vi } from "vitest";
+
+import type { RecordActions } from "../src/components/recordSheets";
 import type { PlayRow, VinylRecord } from "../src/lib/records";
 
 export function sampleRecord(id: number, overrides: Partial<VinylRecord> = {}): VinylRecord {
@@ -20,3 +23,11 @@ export const samplePlays: PlayRow[] = [
   { id: 2, Date: "2026-10-25T12:17:00+00:00", AlbumName: "Rust In Peace", DurationMins: 57, VinylID: 1700000002 },
   { id: 3, Date: "2026-10-20T09:00:00+00:00", AlbumName: "Rust In Peace", DurationMins: 28, VinylID: 1700000002 },
 ];
+
+// Every record action as a mock that reports success, with any of them swapped out
+export function fakeActions(overrides: Partial<RecordActions> = {}): RecordActions {
+  return {
+    logPlay: vi.fn(async () => true), matchRecord: vi.fn(async () => true), rateRecord: vi.fn(async () => true),
+    editRecord: vi.fn(async () => true), removeRecord: vi.fn(async () => true), ...overrides,
+  };
+}

@@ -2,7 +2,7 @@
 import { useState } from "react";
 
 import type { RecordView } from "../lib/collectionView";
-import { formatLastPlayed, minutesText, playCountText, stars, trackList, yearText } from "../lib/format";
+import { formatLastPlayed, minutesText, playCountText, trackList, yearText } from "../lib/format";
 import { fromLocalInputValue, minutesFor, partsFor, type PlayPart, toLocalInputValue } from "../lib/plays";
 import { BottomSheet } from "./bottomSheet";
 import { CoverArt } from "./coverArt";
@@ -13,9 +13,12 @@ interface RecordSheetProps {
   // Resolves true once the play is saved
   onLog: (record: RecordView, part: PlayPart, playedAt: Date) => Promise<boolean>;
   onMatch: () => void;
+  onEdit: () => void;
+  // Tapping the star it already has takes the rating off
+  onRate: (record: RecordView, rating: number | null) => void;
 }
 
-export function RecordSheet({ record, onClose, onLog, onMatch }: RecordSheetProps) {
+export function RecordSheet({ record, onClose, onLog, onMatch, onEdit, onRate }: RecordSheetProps) {
   const [part, setPart] = useState<PlayPart>("Full album");
   const [earlier, setEarlier] = useState(false);
   const [earlierValue, setEarlierValue] = useState(() => toLocalInputValue(new Date(Date.now() - 60 * 60 * 1000)));
@@ -47,9 +50,7 @@ export function RecordSheet({ record, onClose, onLog, onMatch }: RecordSheetProp
           <h2 className="sheetAlbum">{record.AlbumName}</h2>
           <div className="muted">{record.Artist}</div>
           {details && <div className="muted small">{details}</div>}
-          <div className="starsLine" aria-label={record.rating ? `${record.rating} out of 5 stars` : "Not rated yet"}>
-            {record.rating ? stars(record.rating) : <span className="muted small">Not rated yet</span>}
-          </div>
+          <StarPicker rating={record.rating} onPick={(rating) => onRate(record, rating === record.rating ? null : rating)} />
         </div>
       </div>
 
@@ -102,11 +103,26 @@ export function RecordSheet({ record, onClose, onLog, onMatch }: RecordSheetProp
         </details>
       )}
 
-      {record.DiscogsID ? (
-        <button type="button" className="linkButton alignStart" onClick={onMatch}>Change the Discogs match</button>
-      ) : (
-        <button type="button" className="secondaryButton" onClick={onMatch}>Match on Discogs</button>
-      )}
+      <div className="sheetActions">
+        <button type="button" className="secondaryButton" onClick={onEdit}>Edit or delete</button>
+        <button type="button" className="secondaryButton" onClick={onMatch}>
+          {record.DiscogsID ? "Change Discogs match" : "Match on Discogs"}
+        </button>
+      </div>
     </BottomSheet>
+  );
+}
+
+function StarPicker({ rating, onPick }: { rating: number; onPick: (rating: number) => void }) {
+  return (
+    <div className="starPicker" role="group" aria-label={rating ? `Rating: ${rating} out of 5 stars` : "Rating: not rated yet"}>
+      {[1, 2, 3, 4, 5].map((value) => (
+        <button key={value} type="button" className={value <= rating ? "starButton starOn" : "starButton"}
+          aria-label={`${value} ${value === 1 ? "star" : "stars"}`} aria-pressed={value === rating} onClick={() => onPick(value)}>
+          {value <= rating ? "★" : "☆"}
+        </button>
+      ))}
+      {!rating && <span className="muted tiny">Tap to rate</span>}
+    </div>
   );
 }

@@ -13,6 +13,7 @@ import { AddScreen } from "./screens/addScreen";
 import { CollectionScreen } from "./screens/collectionScreen";
 import { ComingSoonScreen } from "./screens/comingSoonScreen";
 import { NotOwnerScreen, OpeningScreen, ProblemScreen, SignInScreen } from "./screens/gateScreens";
+import { PlayScreen } from "./screens/playScreen";
 import { PlaysScreen } from "./screens/playsScreen";
 
 export function App() {
@@ -68,8 +69,7 @@ function Shell({ login }: { login: string }) {
     body = <CollectionScreen data={state.data} onOpenAccount={() => setAccountOpen(true)} onOpenAdd={() => setAdding(true)}
       actions={actions} />;
   } else if (tab === "play") {
-    body = <ComingSoonScreen title="What should I play?" oldSection="play"
-      what="Picks a record for you by genre and how much time you have, favouring ones you haven't played for a while." />;
+    body = <PlayScreen data={state.data} actions={actions} />;
   } else if (tab === "plays") {
     body = <PlaysScreen data={state.data} onDelete={actions.removePlay} />;
   } else if (tab === "wants") {
@@ -89,7 +89,7 @@ function Shell({ login }: { login: string }) {
       {toast && <Toast toast={toast} onDone={() => setToast(null)} />}
       <TabBar current={tab} onPick={pickTab} />
       {accountOpen && (
-        <AccountSheet login={login} onReload={reload} onSignOut={signOut} onClose={() => setAccountOpen(false)} />
+        <AccountSheet login={login} data={state.status === "ready" ? state.data : null} onReload={reload} onSignOut={signOut} onClose={() => setAccountOpen(false)} />
       )}
     </div>
   );

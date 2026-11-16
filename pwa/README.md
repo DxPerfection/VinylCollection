@@ -17,6 +17,11 @@ this one covers everything. It reads the same Supabase tables, behind the same G
 - Match on Discogs: saves the record info for records added before, picked by you; a "No Discogs info yet" chip
   lists them
 - Sides A to D on the record card when a record's side lengths are saved
+- What should I play (Play tab): one record picked with the Streamlit app's rules (long-unplayed and higher-rated
+  records come up more, nothing played in the last 3 days, not the same artist twice), filters for time, genre,
+  decade and rating, "Play it" logs the whole album, "Another one" picks again
+- Manage, from the record card: tap the stars to rate, "Edit or delete" to change any detail or delete (with Undo)
+- Account: download CSV backups of records, plays and want list, in the same format the Streamlit Restore reads
 - The bottom tab bar; tabs that are not built yet link to the same section of the Streamlit app
 - Installing to the home screen (app manifest, icons and a service worker)
 
