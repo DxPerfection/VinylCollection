@@ -1,0 +1,154 @@
+/* The look from the mock-up: warm dark brown, amber accents, Space Grotesk headings over Inter */
+:root {
+  --bg: #15120e;
+  --surface: #221d16;
+  --surfaceRaised: #1f1a14;
+  --bar: #1b1712;
+  --line: #2a241c;
+  --lineStrong: #4a3f31;
+  --text: #f3ece2;
+  --muted: #b8ab98;
+  --accent: #f2a93b;
+  --accentInk: #1a1208;
+  --highlight: #ffd796;
+  --error: #ffb08a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+h1, h2 { font-family: "Space Grotesk", Inter, sans-serif; margin: 0; }
+h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.5px; }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.centered { text-align: center; }
+.visuallyHidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Shell: the open screen fills the space above the tab bar */
+.appShell { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+.screen { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; max-width: 1100px; margin: 0 auto; }
+.screenHeader { padding: calc(20px + env(safe-area-inset-top)) 20px 12px; display: flex; flex-direction: column; gap: 12px; }
+.scrollArea { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 20px 24px; scrollbar-width: none; }
+.scrollArea::-webkit-scrollbar { display: none; }
+.titleRow { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+
+/* Controls */
+.roundButton {
+  width: 46px; height: 46px; border-radius: 23px; border: 1px solid var(--lineStrong);
+  background: var(--surface); color: var(--text); display: flex; align-items: center; justify-content: center; flex: none;
+}
+.searchBox {
+  display: flex; align-items: center; gap: 10px; background: var(--surface); border-radius: 12px;
+  padding: 0 14px; height: 44px; color: var(--muted);
+}
+.searchBox input { flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: var(--text); font-size: 16px; }
+.searchBox:focus-within { box-shadow: 0 0 0 1px var(--accent); }
+.chipRow { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -20px; padding: 0 20px; }
+.chipRow::-webkit-scrollbar { display: none; }
+.chip {
+  height: 36px; padding: 0 16px; border-radius: 18px; border: 1px solid #3a3127; background: transparent;
+  font-size: 14px; font-weight: 500; white-space: nowrap; flex: none;
+}
+.chipActive { background: var(--accent); border-color: var(--accent); color: var(--accentInk); }
+.sortPicker { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; align-self: flex-start; }
+.sortPicker select {
+  background: transparent; border: none; color: var(--muted); font-size: 13px; padding: 6px 0; min-height: 32px;
+}
+.sortPicker select option { background: var(--surface); color: var(--text); }
+.primaryButton, .secondaryButton {
+  height: 50px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  font-size: 16px; font-weight: 600; text-decoration: none; padding: 0 18px;
+}
+.primaryButton { border: none; background: var(--accent); color: var(--accentInk); }
+.primaryButton:disabled { opacity: 0.7; }
+.secondaryButton { border: 1px solid var(--lineStrong); background: transparent; color: var(--text); font-weight: 500; }
+.wide { width: 100%; max-width: 320px; }
+
+/* Collection grid */
+.recordGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 18px 14px; }
+.recordTile {
+  background: none; border: none; padding: 0; text-align: left; display: flex; flex-direction: column; gap: 4px; min-width: 0;
+}
+.tileCoverWrap { position: relative; margin-bottom: 4px; }
+.cover {
+  aspect-ratio: 1; width: 100%; border-radius: 10px; overflow: hidden; background: var(--surface);
+  display: flex; align-items: center; justify-content: center;
+}
+.cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.discArt { width: 74%; height: 74%; }
+.yearBadge {
+  position: absolute; left: 8px; bottom: 6px; font-size: 11px; font-weight: 600; color: var(--text);
+  background: rgba(13, 11, 8, 0.72); padding: 2px 6px; border-radius: 6px;
+}
+.tileAlbum, .tileArtist { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; }
+.tileAlbum { font-weight: 600; font-size: 14px; line-height: 1.25; }
+.tileArtist { color: var(--muted); font-size: 13px; }
+.tileStars { color: var(--accent); font-size: 12px; letter-spacing: 1px; }
+.emptyNote { color: var(--muted); text-align: center; padding: 40px 0; }
+
+/* Tab bar */
+.tabBar {
+  flex: none; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); background: var(--bar);
+  border-top: 1px solid var(--line); padding: 6px 0 calc(8px + env(safe-area-inset-bottom));
+}
+.tab {
+  border: none; background: transparent; color: var(--muted); display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 4px; font-size: 11px; font-weight: 600; min-height: 56px;
+}
+.tabActive { color: var(--accent); }
+
+/* Bottom sheets */
+.sheetBackdrop {
+  position: fixed; inset: 0; background: rgba(5, 4, 3, 0.6); display: flex; flex-direction: column; z-index: 10;
+}
+.sheetDismiss { flex: 1; border: none; background: transparent; min-height: 60px; }
+.sheetPanel {
+  background: var(--surfaceRaised); border-radius: 22px 22px 0 0; padding: 10px 20px calc(24px + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; gap: 14px; max-height: 85dvh; overflow-y: auto; width: 100%; max-width: 560px;
+  margin: 0 auto; animation: sheetUp 0.22s ease-out; outline: none;
+}
+@keyframes sheetUp { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .sheetPanel { animation: none; } }
+.sheetHandle { width: 40px; height: 5px; border-radius: 3px; background: var(--lineStrong); align-self: center; }
+.sheetHead { display: flex; gap: 14px; align-items: center; }
+.sheetCover { width: 104px; flex: none; }
+.sheetTitles { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.sheetAlbum { font-size: 20px; font-weight: 600; line-height: 1.2; }
+.starsLine { color: var(--accent); font-size: 15px; letter-spacing: 1px; margin-top: 3px; }
+.starsLine .muted { letter-spacing: normal; }
+.sheetStats {
+  display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13px; color: var(--muted);
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 10px 0;
+}
+.trackList summary { cursor: pointer; font-weight: 600; font-size: 14px; padding: 6px 0; min-height: 32px; }
+.trackList ol { margin: 6px 0 0; padding-left: 30px; color: var(--muted); font-size: 14px; line-height: 1.7; }
+
+/* Cards and the screens before sign-in */
+.card { background: var(--surface); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+.card p { margin: 0; line-height: 1.45; }
+.card .primaryButton { margin-top: 6px; }
+.gate {
+  min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  padding: 24px; text-align: center;
+}
+.gate p { margin: 0; max-width: 320px; line-height: 1.45; }
+.gateDisc { width: 96px; height: 96px; margin-bottom: 8px; animation: spin 14s linear infinite; }
+.gateDisc .discArt { width: 100%; height: 100%; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .gateDisc { animation: none; } }
+.errorNote { color: var(--error); font-size: 14px; }
