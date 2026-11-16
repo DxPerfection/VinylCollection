@@ -11,10 +11,10 @@ import { useCollection } from "./lib/useCollection";
 import { signInWithGithub, signOut, useSession } from "./lib/useSession";
 import { AddScreen } from "./screens/addScreen";
 import { CollectionScreen } from "./screens/collectionScreen";
-import { ComingSoonScreen } from "./screens/comingSoonScreen";
 import { NotOwnerScreen, OpeningScreen, ProblemScreen, SignInScreen } from "./screens/gateScreens";
 import { PlayScreen } from "./screens/playScreen";
 import { PlaysScreen } from "./screens/playsScreen";
+import { StatsScreen } from "./screens/statsScreen";
 import { WantsScreen } from "./screens/wantsScreen";
 
 export function App() {
@@ -76,8 +76,7 @@ function Shell({ login }: { login: string }) {
   } else if (tab === "wants") {
     body = <WantsScreen data={state.data} actions={actions} onOpenAdd={() => setAdding(true)} />;
   } else {
-    body = <ComingSoonScreen title="Stats" oldSection="stats"
-      what="Genres, decades, streaks, top artists, gathering dust and your year in review." />;
+    body = <StatsScreen data={state.data} />;
   }
 
   return (

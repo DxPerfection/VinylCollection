@@ -273,3 +273,39 @@ a { color: var(--accent); }
   background: var(--surfaceRaised); border: 1px solid var(--line); color: var(--text); text-decoration: none; font-size: 14px;
 }
 .linkish { color: var(--accent); display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-weight: 600; }
+
+/* Stats */
+.statsArea { display: flex; flex-direction: column; gap: 26px; }
+.statGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.statTile { background: var(--surface); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.statValue {
+  font-family: "Space Grotesk", Inter, sans-serif; font-size: 22px; font-weight: 600; line-height: 1.25;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.statSection { display: flex; flex-direction: column; gap: 8px; }
+.statSection h2 { font-family: "Space Grotesk", Inter, sans-serif; font-size: 18px; margin: 0; }
+.statSection h2 + .tiny { margin: -6px 0 2px; }
+.sectionHead { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.miniSwitch { display: flex; background: var(--bar); border-radius: 10px; padding: 3px; }
+.miniSwitch .segment { min-height: 30px; padding: 0 12px; font-size: 13px; }
+.accentText { color: var(--accent); }
+.barList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.barItem { display: flex; flex-direction: column; gap: 4px; }
+.barLabels { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
+.barName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.barValue { flex: none; color: var(--text); font-variant-numeric: tabular-nums; font-size: 13px; }
+.barTrack { height: 8px; }
+.barFill { height: 100%; background: var(--accent); border-radius: 0 4px 4px 0; min-width: 2px; }
+.columnChart { display: flex; flex-direction: column; gap: 6px; }
+.columnReadout { font-size: 13px; min-height: 20px; }
+.columns { display: grid; gap: 2px; }
+.columns:not(.columnLabels) { height: 140px; align-items: end; border-bottom: 1px solid var(--lineStrong); }
+.column { height: 100%; display: flex; align-items: flex-end; background: none; border: none; padding: 0 2px; }
+.columnFill { width: 100%; background: var(--accent); border-radius: 4px 4px 0 0; opacity: 0.85; }
+.columnPicked .columnFill { opacity: 1; box-shadow: 0 0 0 2px var(--highlight); }
+.columnLabel { font-size: 11px; color: var(--muted); text-align: left; white-space: nowrap; overflow: visible; }
+.columnLabel.compact { text-align: center; }
+.dustList { list-style: none; margin: 0; padding: 0; }
+.dustList li { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.dustText { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dustWhen { flex: none; }
