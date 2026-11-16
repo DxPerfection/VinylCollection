@@ -7,6 +7,7 @@ import { deleteRecord, deleteWant, insertRecord, insertWant, recordInfo, updateR
 import type { RecordView } from "./collectionView";
 import type { ReleaseDetails } from "./lookup";
 import { linkPastPlays, needsPlayLink } from "./manage";
+import { addPending, isConnectionProblem, isPending, removePending } from "./offline";
 import { deletePlay, insertPlay, newPlayRow, type PlayPart } from "./plays";
 import type { CollectionData, PlayRow, VinylRecord, WantRow } from "./records";
 import { getSupabase } from "./supabaseClient";
@@ -42,11 +43,29 @@ export function useActions(updateData: UpdateData, showToast: ShowToast): Action
   const updateWants = useCallback((change: (wants: WantRow[]) => WantRow[]) =>
     updateData((data) => ({ ...data, wants: change(data.wants) })), [updateData]);
 
+  // Without a signal the play waits on the phone and is sent when the app can reach Supabase again
+  const keepForLater = useCallback((row: Omit<PlayRow, "id">, label: string) => {
+    const pending = addPending(row);
+    updatePlays((plays) => [...plays, pending]);
+    showToast(`Logged ${label}, sends when online`, {
+      undo: () => {
+        removePending(pending.id);
+        updatePlays((plays) => plays.filter((play) => play.id !== pending.id));
+        showToast(`Took back ${label}`);
+      },
+    });
+  }, [showToast, updatePlays]);
+
   const logPlay = useCallback(async (record: RecordView, part: PlayPart, playedAt: Date) => {
+    const row = newPlayRow(record, part, playedAt);
+    const label = part === "Full album" ? String(record.AlbumName) : `${record.AlbumName} (${part})`;
+    if (!navigator.onLine) {
+      keepForLater(row, label);
+      return true;
+    }
     try {
-      const saved = await insertPlay(getSupabase(), newPlayRow(record, part, playedAt));
+      const saved = await insertPlay(getSupabase(), row);
       updatePlays((plays) => [...plays, saved]);
-      const label = part === "Full album" ? record.AlbumName : `${record.AlbumName} (${part})`;
       showToast(`Logged ${label}`, {
         undo: async () => {
           try {
@@ -60,13 +79,23 @@ export function useActions(updateData: UpdateData, showToast: ShowToast): Action
       });
       return true;
     } catch (error) {
+      if (isConnectionProblem(error)) {
+        keepForLater(row, label);
+        return true;
+      }
       showError("Couldn't save the play", error);
       return false;
     }
-  }, [showError, showToast, updatePlays]);
+  }, [keepForLater, showError, showToast, updatePlays]);
 
   // Undo saves the same play again (it gets a new id)
   const removePlay = useCallback(async (play: PlayRow) => {
+    if (isPending(play)) {
+      removePending(play.id);
+      updatePlays((plays) => plays.filter((item) => item.id !== play.id));
+      showToast(`Removed ${play.AlbumName ?? "the play"} before it was sent`);
+      return;
+    }
     try {
       await deletePlay(getSupabase(), play.id);
       updatePlays((plays) => plays.filter((item) => item.id !== play.id));

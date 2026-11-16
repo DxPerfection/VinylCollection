@@ -1,7 +1,8 @@
-// Checking a Discogs release before adding it: the filled-in details can be changed, then Add to collection
+// Checking a Discogs release before adding it: the filled-in details can be changed, then Add to collection.
+// Without a release (hit is null) it is the same form, empty, for adding a record by hand.
 import { useEffect, useMemo, useState } from "react";
 
-import { conditions, editsFrom, isDuplicate, knownGenres, newInventoryRow, type RecordEdits } from "../lib/addRecord";
+import { blankEdits, conditions, editsFrom, handRelease, isDuplicate, knownGenres, newInventoryRow, type RecordEdits } from "../lib/addRecord";
 import { type DiscogsHit, getRelease, type ReleaseDetails } from "../lib/lookup";
 import type { VinylRecord } from "../lib/records";
 import { getSupabase } from "../lib/supabaseClient";
@@ -10,21 +11,26 @@ import { BottomSheet } from "./bottomSheet";
 import { CoverArt } from "./coverArt";
 
 interface AddSheetProps {
-  hit: DiscogsHit;
+  hit: DiscogsHit | null;
+  startWith?: { artist: string; album: string };
   records: VinylRecord[];
   onAdd: (row: VinylRecord) => Promise<boolean>;
   onClose: () => void;
 }
 
-export function AddSheet({ hit, records, onAdd, onClose }: AddSheetProps) {
+export function AddSheet({ hit, startWith, records, onAdd, onClose }: AddSheetProps) {
   const known = useMemo(() => knownGenres(records), [records]);
-  const [release, setRelease] = useState<ReleaseDetails | null>(null);
+  const byHand = hit === null;
+  const [release, setRelease] = useState<ReleaseDetails | null>(byHand ? handRelease("", "") : null);
   const [problem, setProblem] = useState("");
-  const [edits, setEdits] = useState<RecordEdits | null>(null);
+  const [edits, setEdits] = useState<RecordEdits | null>(byHand ? blankEdits(startWith?.artist, startWith?.album) : null);
   const [otherGenre, setOtherGenre] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [coverUrl, setCoverUrl] = useState("");
+  const [tracklist, setTracklist] = useState("");
 
   useEffect(() => {
+    if (!hit) return;
     let current = true;
     getRelease(getSupabase(), hit.discogsId)
       .then((details) => {
@@ -36,7 +42,7 @@ export function AddSheet({ hit, records, onAdd, onClose }: AddSheetProps) {
       })
       .catch((error) => current && setProblem(error instanceof Error ? error.message : String(error)));
     return () => { current = false; };
-  }, [hit.discogsId, known]);
+  }, [hit, known]);
 
   const change = (field: keyof RecordEdits, value: string | number) => edits && setEdits({ ...edits, [field]: value });
   const duplicate = edits ? isDuplicate(edits.artist, edits.album, records) : false;
@@ -45,20 +51,21 @@ export function AddSheet({ hit, records, onAdd, onClose }: AddSheetProps) {
   const add = async () => {
     if (!release || !edits || !ready) return;
     setSaving(true);
-    const added = await onAdd(newInventoryRow(release, edits, records, known));
+    const added = await onAdd(newInventoryRow(byHand ? handRelease(coverUrl, tracklist) : release, edits, records, known));
     setSaving(false);
     if (added) onClose();
   };
 
   return (
-    <BottomSheet label={`Add ${hit.album}`} onClose={onClose}>
+    <BottomSheet label={hit ? `Add ${hit.album}` : "Add a record by hand"} onClose={onClose}>
       <div className="sheetHead">
-        <CoverArt url={release?.coverUrl ?? hit.coverUrl} className="sheetCover" />
+        <CoverArt url={byHand ? coverUrl : release?.coverUrl ?? hit.coverUrl} className="sheetCover" />
         <div className="sheetTitles">
-          <h2 className="sheetAlbum">{edits?.album ?? hit.album}</h2>
-          <div className="muted">{edits?.artist ?? hit.artist}</div>
-          <div className="muted tiny">{pressingLine(release ?? hit)}</div>
-          {release && (
+          <h2 className="sheetAlbum">{byHand ? (edits?.album.trim() || "Add by hand") : edits?.album ?? hit.album}</h2>
+          <div className="muted">{byHand ? (edits?.artist.trim() || "Type the details below") : edits?.artist ?? hit.artist}</div>
+          {hit && <div className="muted tiny">{pressingLine(release ?? hit)}</div>}
+          {byHand && <div className="muted tiny">Without Discogs. You can match it on Discogs later from the record.</div>}
+          {hit && release && (
             <div className="muted tiny">
               {release.coverFromSpotify ? "Cover from Spotify" : "Cover from Discogs"} · {release.lengthFromSpotify ? "length from Spotify" : "length from Discogs"}
             </div>
@@ -114,9 +121,18 @@ export function AddSheet({ hit, records, onAdd, onClose }: AddSheetProps) {
             </div>
           </div>
 
-          <div className="muted small">
+          {byHand && (
+            <>
+              <label className="field"><span>Cover image link (optional)</span>
+                <input type="url" inputMode="url" placeholder="https://…" value={coverUrl} onChange={(event) => setCoverUrl(event.target.value)} /></label>
+              <label className="field"><span>Tracklist (optional, one per line)</span>
+                <textarea rows={4} value={tracklist} onChange={(event) => setTracklist(event.target.value)} /></label>
+            </>
+          )}
+
+          {hit && <div className="muted small">
             {release.tracks.length} tracks{release.sideMins ? ` · sides ${release.sideMins.replace(/\|/g, ", ").replace(/:/g, " ")} min` : ""}
-          </div>
+          </div>}
 
           {duplicate && <p className="errorNote small" role="alert">{edits.album} by {edits.artist} is already in your collection.</p>}
           <button type="button" className="primaryButton bigButton" disabled={!ready || saving} onClick={add}>

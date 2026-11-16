@@ -26,7 +26,12 @@ this one covers everything. It reads the same Supabase tables, behind the same G
   that release, then takes it off the list, with Undo) and Remove (with Undo)
 - Stats: streaks, days listened, never played, most listened albums (plays or minutes), hours per week, top
   artists, plays by weekday, year in review, gathering dust, genres, decades and condition, as in the Streamlit Dashboard
-- Account: download CSV backups of records, plays and want list, in the same format the Streamlit Restore reads
+- Account: download CSV backups of records, plays and want list, in the same format the Streamlit Restore reads,
+  and restore from one (add-only: rows the app already has are left alone, nothing is changed or deleted)
+- Add by hand: "Not on Discogs? Add it by hand" on the Add screen, the same form without a Discogs release
+- Offline: the last records, plays and want list are kept on the phone (`src/lib/offline.ts`), covers and fonts by
+  the service worker, so the app opens without a signal. Plays logged offline wait on the phone and are sent when it
+  can reach Supabase again (never twice). A bar above the tab bar says when it is showing the kept copy.
 - The bottom tab bar
 - Installing to the home screen (app manifest, icons and a service worker)
 

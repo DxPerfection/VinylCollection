@@ -27,10 +27,26 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // Only the app itself is kept for opening without a signal. Records and plays always come fresh from
-        // Supabase; keeping them for offline use comes in a later step.
+        // The app itself is kept for opening without a signal; the records, plays and want list are kept by the
+        // app (src/lib/offline.ts). Covers from Spotify and Discogs are kept once seen, so they show offline too.
         globPatterns: ["**/*.{js,css,html,png,svg,woff2}"],
         navigateFallback: "/index.html",
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.hostname === "i.scdn.co" || url.hostname === "i.discogs.com",
+            handler: "CacheFirst",
+            options: {
+              cacheName: "covers",
+              expiration: { maxEntries: 2000, maxAgeSeconds: 120 * 24 * 60 * 60 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            urlPattern: ({ url }) => url.hostname === "fonts.googleapis.com" || url.hostname === "fonts.gstatic.com",
+            handler: "CacheFirst",
+            options: { cacheName: "fonts", expiration: { maxEntries: 30, maxAgeSeconds: 365 * 24 * 60 * 60 }, cacheableResponse: { statuses: [0, 200] } },
+          },
+        ],
       },
     }),
   ],
