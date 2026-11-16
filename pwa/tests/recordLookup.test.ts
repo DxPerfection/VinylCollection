@@ -2,7 +2,7 @@
 // The Supabase function's Discogs and Spotify logic, with Discogs and Spotify faked
 import { describe, expect, it } from "vitest";
 
-import { releaseDetails, searchDiscogs, sideMinutes, sideOf, splitTitle, toDiscogsHit, toSeconds } from "../../supabase/functions/recordLookup/lookup";
+import { marketPrices, releaseDetails, searchDiscogs, sideMinutes, sideOf, splitTitle, toDiscogsHit, toSeconds } from "../../supabase/functions/recordLookup/lookup";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
@@ -109,5 +109,22 @@ describe("releaseDetails", () => {
     expect(details.lengthFromSpotify).toBe(false);
     const noKeys = await releaseDetails(async () => json(release), { discogsToken: "t" }, 99);
     expect(noKeys.durationMins).toBe(18);
+  });
+});
+
+describe("marketPrices", () => {
+  it("asks Discogs once per release in the chosen currency, and gives null where Discogs can't say", async () => {
+    const asked: string[] = [];
+    const fetcher = async (url: string, init?: RequestInit) => {
+      asked.push(url);
+      expect((init?.headers as Record<string, string>).Authorization).toBe("Discogs token=t");
+      if (url.includes("/stats/2")) return json({}, 404);
+      if (url.includes("/stats/3")) return json({ lowest_price: null, num_for_sale: 0 });
+      return json({ lowest_price: { value: 21.5, currency: "TRY" }, num_for_sale: 7 });
+    };
+    const prices = await marketPrices(fetcher, "t", [1, 2, 3, 1, -4], "TRY");
+    expect(asked).toHaveLength(3);
+    expect(asked[0]).toBe("https://api.discogs.com/marketplace/stats/1?curr_abbr=TRY");
+    expect(prices).toEqual({ "1": { lowest: 21.5, currency: "TRY", forSale: 7 }, "2": null, "3": { lowest: null, currency: "TRY", forSale: 0 } });
   });
 });

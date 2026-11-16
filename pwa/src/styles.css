@@ -253,3 +253,23 @@ a { color: var(--accent); }
 .pickFilters { display: flex; flex-direction: column; gap: 12px; }
 .filterHead { display: flex; justify-content: space-between; align-items: center; min-height: 32px; }
 .filterRow { display: flex; flex-direction: column; gap: 6px; }
+
+/* Want list */
+.wantList { list-style: none; margin: 0; padding: 0; }
+.wantRow {
+  width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 0; border: none; border-bottom: 1px solid var(--line);
+  background: none; text-align: left;
+}
+.wantCover { width: 64px; flex: none; border-radius: 8px; }
+.wantText { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.priceLine { color: var(--highlight); }
+.priorityPill {
+  flex: none; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 12px; border: 1px solid var(--lineStrong);
+  color: var(--muted);
+}
+.priorityHigh { background: var(--accent); border-color: var(--accent); color: var(--accentInk); }
+.discogsLine {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px;
+  background: var(--surfaceRaised); border: 1px solid var(--line); color: var(--text); text-decoration: none; font-size: 14px;
+}
+.linkish { color: var(--accent); display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-weight: 600; }
