@@ -3,32 +3,27 @@ import { useMemo, useState } from "react";
 
 import { CoverArt } from "../components/coverArt";
 import { PlusIcon, SearchIcon, SortIcon, UserIcon } from "../components/icons";
-import { MatchSheet } from "../components/matchSheet";
-import { RecordSheet } from "../components/recordSheet";
+import { type RecordActions, RecordSheets } from "../components/recordSheets";
 import {
   type CollectionFilter, filterAndSort, genresInUse, linkPlays, type RecordView, type SortOption, sortOptions,
 } from "../lib/collectionView";
 import { stars, yearText } from "../lib/format";
 import type { CollectionData } from "../lib/records";
-import type { Actions } from "../lib/useActions";
 
 interface CollectionScreenProps {
   data: CollectionData;
   onOpenAccount: () => void;
   onOpenAdd: () => void;
-  actions: Pick<Actions, "logPlay" | "matchRecord">;
+  actions: RecordActions;
 }
 
 export function CollectionScreen({ data, onOpenAccount, onOpenAdd, actions }: CollectionScreenProps) {
   const [filter, setFilter] = useState<CollectionFilter>({ search: "", genre: null, sort: "Recently added" });
   const [openId, setOpenId] = useState<number | null>(null);
-  const [matchingId, setMatchingId] = useState<number | null>(null);
 
   const records = useMemo(() => linkPlays(data.records, data.plays), [data]);
   const genres = useMemo(() => genresInUse(data.records), [data]);
   const shown = useMemo(() => filterAndSort(records, filter), [records, filter]);
-  const openRecord = openId === null ? undefined : records.find((record) => Number(record.ID) === openId);
-  const matchingRecord = matchingId === null ? undefined : records.find((record) => Number(record.ID) === matchingId);
   const unmatchedCount = records.filter((record) => !record.DiscogsID).length;
 
   const total = records.length;
@@ -85,7 +80,7 @@ export function CollectionScreen({ data, onOpenAccount, onOpenAdd, actions }: Co
       </header>
 
       <div className="scrollArea">
-        {total === 0 && <p className="emptyNote">Your shelf is empty. Add your first record in the current app.</p>}
+        {total === 0 && <p className="emptyNote">Your shelf is empty. Tap + to add your first record.</p>}
         {total > 0 && shown.length === 0 && <p className="emptyNote">No records match your search.</p>}
         <div className="recordGrid">
           {shown.map((record) => (
@@ -94,13 +89,7 @@ export function CollectionScreen({ data, onOpenAccount, onOpenAdd, actions }: Co
         </div>
       </div>
 
-      {openRecord && (
-        <RecordSheet record={openRecord} onClose={() => setOpenId(null)} onLog={actions.logPlay}
-          onMatch={() => { setOpenId(null); setMatchingId(Number(openRecord.ID)); }} />
-      )}
-      {matchingRecord && (
-        <MatchSheet record={matchingRecord} onMatch={actions.matchRecord} onClose={() => setMatchingId(null)} />
-      )}
+      <RecordSheets records={records} rows={data.records} openId={openId} onClose={() => setOpenId(null)} actions={actions} />
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CollectionScreen } from "../src/screens/collectionScreen";
-import { samplePlays, sampleRecords } from "./sampleData";
+import { fakeActions, samplePlays, sampleRecords } from "./sampleData";
 
 afterEach(cleanup);
 
@@ -11,7 +11,7 @@ const tileAlbums = () => Array.from(document.querySelectorAll(".tileAlbum")).map
 describe("CollectionScreen", () => {
   const show = (onLog = vi.fn(async () => true), matchRecord = vi.fn(async () => true)) =>
     render(<CollectionScreen data={{ records: sampleRecords, plays: samplePlays, wants: [] }} onOpenAccount={() => {}}
-      onOpenAdd={() => {}} actions={{ logPlay: onLog, matchRecord }} />);
+      onOpenAdd={() => {}} actions={fakeActions({ logPlay: onLog, matchRecord })} />);
 
   it("shows every record, newest first, with the count", () => {
     show();
@@ -95,11 +95,54 @@ describe("CollectionScreen", () => {
 
   it("filters to records without Discogs info, and offers Match on Discogs", () => {
     render(<CollectionScreen data={{ records: [...sampleRecords.slice(1), { ...sampleRecords[0], DiscogsID: 9, Label: "Parlophone" }], plays: [], wants: [] }}
-      onOpenAccount={() => {}} onOpenAdd={() => {}} actions={{ logPlay: vi.fn(), matchRecord: vi.fn() }} />);
+      onOpenAccount={() => {}} onOpenAdd={() => {}} actions={fakeActions()} />);
     fireEvent.click(screen.getByRole("button", { name: "No Discogs info yet (3)" }));
     expect(tileAlbums()).not.toContain("The Bends");
     fireEvent.click(screen.getByText("Discovery"));
     fireEvent.click(screen.getByRole("button", { name: "Match on Discogs" }));
     expect(screen.getByRole("dialog", { name: "Match Discovery on Discogs" })).toBeTruthy();
+  });
+
+  it("rates a record from its card, and tapping the same star takes the rating off", () => {
+    const rateRecord = vi.fn(async () => true);
+    render(<CollectionScreen data={{ records: sampleRecords, plays: [], wants: [] }} onOpenAccount={() => {}} onOpenAdd={() => {}}
+      actions={fakeActions({ rateRecord })} />);
+    fireEvent.click(screen.getByText("The Bends"));
+    const card = screen.getByRole("dialog", { name: "The Bends" });
+    expect(within(card).getByRole("group", { name: "Rating: 4 out of 5 stars" })).toBeTruthy();
+    fireEvent.click(within(card).getByRole("button", { name: "2 stars" }));
+    fireEvent.click(within(card).getByRole("button", { name: "4 stars" }));
+    expect(rateRecord.mock.calls.map((call) => (call as unknown[])[1])).toEqual([2, null]);
+  });
+
+  it("edits a record: only changed columns are saved, and duplicates are refused", async () => {
+    const editRecord = vi.fn(async () => true);
+    render(<CollectionScreen data={{ records: sampleRecords, plays: [], wants: [] }} onOpenAccount={() => {}} onOpenAdd={() => {}}
+      actions={fakeActions({ editRecord })} />);
+    fireEvent.click(screen.getByText("Discovery"));
+    fireEvent.click(screen.getByRole("button", { name: "Edit or delete" }));
+    const sheet = screen.getByRole("dialog", { name: "Edit Discovery" });
+    expect((within(sheet).getByRole("button", { name: "No changes yet" }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(within(sheet).getByLabelText("Artist"), { target: { value: "Radiohead" } });
+    fireEvent.change(within(sheet).getByLabelText("Album"), { target: { value: "the bends" } });
+    expect(within(sheet).getByRole("alert").textContent).toBe("the bends by Radiohead is already in your collection.");
+
+    fireEvent.change(within(sheet).getByLabelText("Artist"), { target: { value: "Daft Punk" } });
+    fireEvent.change(within(sheet).getByLabelText("Album"), { target: { value: "Discovery (2001)" } });
+    fireEvent.change(within(sheet).getByLabelText("Length (min)"), { target: { value: "60" } });
+    await act(async () => { fireEvent.click(within(sheet).getByRole("button", { name: "Save changes" })); });
+    expect((editRecord.mock.calls[0] as unknown[])[1]).toEqual({ AlbumName: "Discovery (2001)", DurationMins: 60 });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("deletes a record from the edit sheet", async () => {
+    const removeRecord = vi.fn(async () => true);
+    render(<CollectionScreen data={{ records: sampleRecords, plays: [], wants: [] }} onOpenAccount={() => {}} onOpenAdd={() => {}}
+      actions={fakeActions({ removeRecord })} />);
+    fireEvent.click(screen.getByText("Discovery"));
+    fireEvent.click(screen.getByRole("button", { name: "Edit or delete" }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Delete this record" })); });
+    expect(((removeRecord.mock.calls[0] as unknown[])[0] as { AlbumName: string }).AlbumName).toBe("Discovery");
   });
 });

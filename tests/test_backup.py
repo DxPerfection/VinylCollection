@@ -60,3 +60,14 @@ def test_backup_keeps_ids_as_whole_numbers():
     text = backupCsv(inventory).decode("utf-8-sig")
     assert "1700000001," in text and "1700000001.0" not in text
     assert pd.read_csv(io.StringIO(text))["ID"].tolist() == inventory["ID"].tolist()
+
+
+def test_restore_keeps_discogs_record_info_when_the_app_has_those_columns():
+    withInfo = inventory.assign(DiscogsID=[123, None, None], Label=["Parlophone", "", ""], SideMins=["A:24|B:22", "", ""])
+    records = roundTrip(withInfo, ["ID", "Artist", "AlbumName"], "records")
+    toAdd, _ = planRecordRestore(records, withInfo.iloc[1:])
+    assert toAdd[0]["DiscogsID"] == 123 and toAdd[0]["Label"] == "Parlophone" and toAdd[0]["SideMins"] == "A:24|B:22"
+    assert "Format" not in toAdd[0]
+
+    toAdd, _ = planRecordRestore(records, inventory.iloc[1:])
+    assert "DiscogsID" not in toAdd[0] and "Label" not in toAdd[0]
