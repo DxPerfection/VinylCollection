@@ -24,8 +24,10 @@ this one covers everything. It reads the same Supabase tables, behind the same G
 - Want list (Wants tab): highest priority first, the lowest Discogs price and copies for sale (from the
   `recordLookup` function, kept for six hours), priority and "where you saw it" note, Got it (opens the Add sheet for
   that release, then takes it off the list, with Undo) and Remove (with Undo)
+- Stats: streaks, days listened, never played, most listened albums (plays or minutes), hours per week, top
+  artists, plays by weekday, year in review, gathering dust, genres, decades and condition, as in the Streamlit Dashboard
 - Account: download CSV backups of records, plays and want list, in the same format the Streamlit Restore reads
-- The bottom tab bar; tabs that are not built yet link to the same section of the Streamlit app
+- The bottom tab bar
 - Installing to the home screen (app manifest, icons and a service worker)
 
 ## How the code is laid out
