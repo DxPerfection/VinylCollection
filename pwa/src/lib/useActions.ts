@@ -10,6 +10,7 @@ import { linkPastPlays, needsPlayLink } from "./manage";
 import { deletePlay, insertPlay, newPlayRow, type PlayPart } from "./plays";
 import type { CollectionData, PlayRow, VinylRecord, WantRow } from "./records";
 import { getSupabase } from "./supabaseClient";
+import { updateWant } from "./wants";
 
 type ShowToast = (text: string, extra?: Omit<ToastMessage, "id" | "text">) => void;
 type UpdateData = (change: (data: CollectionData) => CollectionData) => void;
@@ -23,6 +24,9 @@ export interface Actions {
   rateRecord: (record: VinylRecord, rating: number | null) => Promise<boolean>;
   editRecord: (record: VinylRecord, changes: Partial<VinylRecord>, records: VinylRecord[]) => Promise<boolean>;
   removeRecord: (record: VinylRecord) => Promise<boolean>;
+  editWant: (want: WantRow, change: Partial<WantRow>) => Promise<boolean>;
+  removeWant: (want: WantRow) => Promise<boolean>;
+  gotWant: (want: WantRow, row: VinylRecord) => Promise<boolean>;
 }
 
 export function useActions(updateData: UpdateData, showToast: ShowToast): Actions {
@@ -219,5 +223,75 @@ export function useActions(updateData: UpdateData, showToast: ShowToast): Action
     }
   }, [showError, showToast, updateRecords]);
 
-  return { logPlay, removePlay, addRecord, addWant, matchRecord, rateRecord, editRecord, removeRecord };
+  const editWant = useCallback(async (want: WantRow, change: Partial<WantRow>) => {
+    try {
+      const saved = await updateWant(getSupabase(), want.id, change);
+      updateWants((wants) => wants.map((item) => item.id === saved.id ? saved : item));
+      showToast(`Saved ${want.AlbumName}`);
+      return true;
+    } catch (error) {
+      showError("Couldn't save it", error);
+      return false;
+    }
+  }, [showError, showToast, updateWants]);
+
+  // Undo saves the same want again, keeping when it was added (it gets a new id)
+  const putWantBack = useCallback(async (want: WantRow) => {
+    const { id: _oldId, ...row } = want;
+    const saved = await insertWant(getSupabase(), row);
+    updateWants((wants) => [...wants, saved]);
+  }, [updateWants]);
+
+  const removeWant = useCallback(async (want: WantRow) => {
+    try {
+      await deleteWant(getSupabase(), want.id);
+      updateWants((wants) => wants.filter((item) => item.id !== want.id));
+      showToast(`Took ${want.AlbumName} off your want list`, {
+        undo: async () => {
+          try {
+            await putWantBack(want);
+          } catch (error) {
+            showError("Couldn't put it back", error);
+          }
+        },
+      });
+      return true;
+    } catch (error) {
+      showError("Couldn't remove it", error);
+      return false;
+    }
+  }, [putWantBack, showError, showToast, updateWants]);
+
+  // Adds the record, then takes the want off the list. Undo does both the other way round.
+  const gotWant = useCallback(async (want: WantRow, row: VinylRecord) => {
+    let saved: VinylRecord;
+    try {
+      saved = await insertRecord(getSupabase(), row);
+      updateRecords((records) => [...records, saved]);
+    } catch (error) {
+      showError("Couldn't add the record", error);
+      return false;
+    }
+    try {
+      await deleteWant(getSupabase(), want.id);
+      updateWants((wants) => wants.filter((item) => item.id !== want.id));
+    } catch (error) {
+      showError(`Added ${saved.AlbumName}, but couldn't take it off the want list`, error);
+      return true;
+    }
+    showToast(`${saved.AlbumName} is in your collection now`, {
+      undo: async () => {
+        try {
+          await deleteRecord(getSupabase(), Number(saved.ID));
+          updateRecords((records) => records.filter((record) => Number(record.ID) !== Number(saved.ID)));
+          await putWantBack(want);
+        } catch (error) {
+          showError("Couldn't undo", error);
+        }
+      },
+    });
+    return true;
+  }, [putWantBack, showError, showToast, updateRecords, updateWants]);
+
+  return { logPlay, removePlay, addRecord, addWant, matchRecord, rateRecord, editRecord, removeRecord, editWant, removeWant, gotWant };
 }

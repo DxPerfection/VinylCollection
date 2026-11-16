@@ -5,9 +5,11 @@
 //
 // POST { "action": "search", "query": "rust in peace" }  ->  { "results": DiscogsHit[] }
 // POST { "action": "release", "discogsId": 1234567 }      ->  { "release": ReleaseDetails }
+// POST { "action": "prices", "discogsIds": [1234567] }    ->  { "prices": { "1234567": MarketPrice | null } }
+// Prices are in DISCOGS_CURRENCY (a function secret), EUR when it isn't set.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-import { releaseDetails, searchDiscogs } from "./lookup.ts";
+import { marketPrices, releaseDetails, searchDiscogs } from "./lookup.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -38,7 +40,7 @@ Deno.serve(async (request) => {
     spotifyClientSecret: Deno.env.get("SPOTIFY_CLIENT_SECRET") ?? undefined,
   };
 
-  let body: { action?: string; query?: string; discogsId?: number };
+  let body: { action?: string; query?: string; discogsId?: number; discogsIds?: number[] };
   try {
     body = await request.json();
   } catch {
@@ -52,6 +54,10 @@ Deno.serve(async (request) => {
     }
     if (body.action === "release" && Number(body.discogsId) > 0) {
       return reply({ release: await releaseDetails(fetch, keys, Number(body.discogsId)) });
+    }
+    if (body.action === "prices" && Array.isArray(body.discogsIds)) {
+      const currency = (Deno.env.get("DISCOGS_CURRENCY") ?? "EUR").trim().toUpperCase() || "EUR";
+      return reply({ prices: await marketPrices(fetch, discogsToken, body.discogsIds, currency) });
     }
     return reply({ error: "Unknown action." }, 400);
   } catch (error) {

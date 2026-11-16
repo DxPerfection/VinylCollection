@@ -15,6 +15,7 @@ import { ComingSoonScreen } from "./screens/comingSoonScreen";
 import { NotOwnerScreen, OpeningScreen, ProblemScreen, SignInScreen } from "./screens/gateScreens";
 import { PlayScreen } from "./screens/playScreen";
 import { PlaysScreen } from "./screens/playsScreen";
+import { WantsScreen } from "./screens/wantsScreen";
 
 export function App() {
   if (!isConfigured()) {
@@ -73,8 +74,7 @@ function Shell({ login }: { login: string }) {
   } else if (tab === "plays") {
     body = <PlaysScreen data={state.data} onDelete={actions.removePlay} />;
   } else if (tab === "wants") {
-    body = <ComingSoonScreen title="Want list" oldSection="wants"
-      what="Records you'd like to buy, with priority, notes and the lowest Discogs price." />;
+    body = <WantsScreen data={state.data} actions={actions} onOpenAdd={() => setAdding(true)} />;
   } else {
     body = <ComingSoonScreen title="Stats" oldSection="stats"
       what="Genres, decades, streaks, top artists, gathering dust and your year in review." />;

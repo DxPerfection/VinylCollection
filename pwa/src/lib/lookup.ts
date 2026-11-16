@@ -5,7 +5,7 @@ import type { DiscogsHit, ReleaseDetails } from "../../../supabase/functions/rec
 
 export type { DiscogsHit, ReleaseDetails };
 
-async function callLookup<T>(supabase: SupabaseClient, body: object): Promise<T> {
+export async function callLookup<T>(supabase: SupabaseClient, body: object): Promise<T> {
   const { data, error } = await supabase.functions.invoke("recordLookup", { body });
   if (error) {
     // The function says what went wrong in its JSON answer; show that rather than a bare status code

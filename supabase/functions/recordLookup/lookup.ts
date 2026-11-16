@@ -185,3 +185,39 @@ export async function releaseDetails(fetcher: FetchLike, keys: Keys, discogsId: 
     lengthFromSpotify: Boolean(spotify?.durationMins),
   };
 }
+
+export interface MarketPrice {
+  lowest: number | null; // the cheapest copy for sale, in currency
+  currency: string;
+  forSale: number;
+}
+
+// The lowest Discogs marketplace price and how many copies are for sale, like the Streamlit want list; null when
+// Discogs can't say for that release
+export async function marketPrice(fetcher: FetchLike, token: string, discogsId: number, currency: string): Promise<MarketPrice | null> {
+  try {
+    const url = `https://api.discogs.com/marketplace/stats/${discogsId}?${new URLSearchParams({ curr_abbr: currency })}`;
+    const data = await getJson(fetcher, url, { headers: { "User-Agent": userAgent, Authorization: `Discogs token=${token}` } });
+    const value = Number(data?.lowest_price?.value);
+    return {
+      lowest: data?.lowest_price && Number.isFinite(value) ? value : null,
+      currency: String(data?.lowest_price?.currency ?? currency),
+      forSale: Number(data?.num_for_sale ?? 0) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Prices for a whole want list: at most 50 releases, four at a time, to stay well inside Discogs' rate limit
+export async function marketPrices(fetcher: FetchLike, token: string, discogsIds: number[], currency: string):
+  Promise<Record<string, MarketPrice | null>> {
+  const ids = [...new Set(discogsIds.map(Number).filter((id) => Number.isInteger(id) && id > 0))].slice(0, 50);
+  const prices: Record<string, MarketPrice | null> = {};
+  for (let start = 0; start < ids.length; start += 4) {
+    const batch = ids.slice(start, start + 4);
+    const found = await Promise.all(batch.map((id) => marketPrice(fetcher, token, id, currency)));
+    batch.forEach((id, index) => { prices[String(id)] = found[index]; });
+  }
+  return prices;
+}
