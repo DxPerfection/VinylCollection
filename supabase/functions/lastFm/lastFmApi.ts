@@ -216,3 +216,67 @@ export async function sendScrobbles(fetcher: FetchLike, keys: LastFmKeys, sessio
     ignoredCodes,
   };
 }
+
+// --- For want list suggestions (no sign-in needed; Last.fm has no personal recommendations API) ---
+
+export interface NamedCount {
+  name: string;
+  count: number; // plays on Last.fm
+}
+
+export interface SimilarArtist {
+  name: string;
+  match: number; // 0 (not similar) to 1 (very similar)
+}
+
+export interface TopAlbum {
+  name: string;
+  count: number;
+  imageUrl: string;
+}
+
+const listOf = (value: unknown): any[] => (Array.isArray(value) ? value : value ? [value] : []);
+
+// The biggest of Last.fm's pictures, or "" (Last.fm's own grey star placeholder counts as none)
+function bestImage(images: unknown): string {
+  const url = String(listOf(images).at(-1)?.["#text"] ?? "");
+  return url.includes("2a96cbd8b46e442fc41c2b86b821562f") ? "" : url;
+}
+
+// A user's most played artists. Period: overall, 7day, 1month, 3month, 6month or 12month.
+export async function topArtists(fetcher: FetchLike, apiKey: string, user: string, period = "12month", limit = 30): Promise<NamedCount[]> {
+  const data = await callLastFm(fetcher, { method: "user.gettopartists", user, period, limit: String(limit), api_key: apiKey }, null);
+  return listOf(data?.topartists?.artist)
+    .map((item) => ({ name: String(item?.name ?? "").trim(), count: Number(item?.playcount ?? 0) || 0 }))
+    .filter((item) => item.name);
+}
+
+export async function similarArtists(fetcher: FetchLike, apiKey: string, artist: string, limit = 20, finishBy = Infinity): Promise<SimilarArtist[]> {
+  const data = await callLastFm(fetcher,
+    { method: "artist.getsimilar", artist, autocorrect: "1", limit: String(limit), api_key: apiKey }, null, finishBy);
+  return listOf(data?.similarartists?.artist)
+    .map((item) => ({ name: String(item?.name ?? "").trim(), match: Math.min(1, Math.max(0, Number(item?.match ?? 0) || 0)) }))
+    .filter((item) => item.name);
+}
+
+export async function topAlbums(fetcher: FetchLike, apiKey: string, artist: string, limit = 5, finishBy = Infinity): Promise<TopAlbum[]> {
+  const data = await callLastFm(fetcher,
+    { method: "artist.gettopalbums", artist, autocorrect: "1", limit: String(limit), api_key: apiKey }, null, finishBy);
+  return listOf(data?.topalbums?.album)
+    .map((item) => ({ name: String(item?.name ?? "").trim(), count: Number(item?.playcount ?? 0) || 0, imageUrl: bestImage(item?.image) }))
+    .filter((item) => item.name && item.name !== "(null)");
+}
+
+// The same call for many artists, five at a time (Last.fm asks apps to stay around five calls a second). Everything
+// has to be back within longLimitMs; artists not done by then, or that failed, are left out.
+export async function forEachArtist<T>(artists: string[], call: (artist: string, finishBy: number) => Promise<T>,
+  limitMs = longLimitMs): Promise<Record<string, T>> {
+  const finishBy = Date.now() + limitMs;
+  const names = [...new Set(artists.map((name) => String(name ?? "").trim()).filter(Boolean))].slice(0, 25);
+  const answers: Record<string, T> = {};
+  for (let start = 0; start < names.length && Date.now() < finishBy; start += 5) {
+    await Promise.all(names.slice(start, start + 5).map((name) => call(name, finishBy)
+      .then((value) => { answers[name] = value; }, () => { /* slow or unknown: left out */ })));
+  }
+  return answers;
+}

@@ -4,7 +4,7 @@
 // secret live in the lastFm Supabase function; the phone only keeps the session key Last.fm gave this app.
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { batchLimit, quickLimitMs, type Scrobble, type ScrobbleResult } from "../../../supabase/functions/lastFm/lastFmApi";
+import { batchLimit, longLimitMs, quickLimitMs, type Scrobble, type ScrobbleResult } from "../../../supabase/functions/lastFm/lastFmApi";
 import { playKey } from "./offline";
 import { minutesFor, sidesOf, type PlayPart } from "./plays";
 import type { PlayRow, VinylRecord } from "./records";
@@ -23,6 +23,8 @@ export const undoWindowMs = 8000;
 const maxTries = 3;
 // The phone waits a little longer than the function's own 8 second limit, for the trip there and back
 export const sendWaitMs = quickLimitMs + 2000;
+// Bigger jobs (similar artists for many artists at once) get 15 seconds there, so the phone waits 17
+export const longWaitMs = longLimitMs + 2000;
 
 function read<T>(key: string): T | null {
   try {

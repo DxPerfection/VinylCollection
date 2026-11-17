@@ -10,12 +10,15 @@ Server-side helpers for the phone app in `pwa/`. They hold keys that must not be
   with the Discogs cover and length instead.
   It also gives the lowest Discogs marketplace price and copies for sale for the want list; prices not checked
   within 15 seconds are left out and asked for again next time.
+  It also finds albums' Spotify pages (`spotifyLinks`, up to 20 at a time, within 15 seconds) for the "Listen on
+  Spotify" links on suggestions and want list records.
 
 - `functions/lastFm/`: Last.fm for the phone app: the link to Last.fm's "allow this app" page, swapping the token
   Last.fm sends back for a session key, and sending scrobbles (at most 50 tracks a call). The API key and shared
   secret stay here; the phone keeps only the session key, which can't sign anything without the secret. Same owner
   check as `recordLookup`. Each Last.fm call gives up after 8 seconds. Needs the function secrets `LASTFM_API_KEY`
-  and `LASTFM_SHARED_SECRET` (from https://www.last.fm/api/account/create). Deploy with JWT verification on, like
+  and `LASTFM_SHARED_SECRET` (from https://www.last.fm/api/account/create). For want list suggestions it also gives a user's top artists,
+  similar artists and each artist's top albums (unsigned Last.fm calls, five at a time, all within 15 seconds). Deploy with JWT verification on, like
   `recordLookup`.
 
 `recordLookup` needs three function secrets, set in Supabase under Edge Functions > Secrets: `DISCOGS_TOKEN`,

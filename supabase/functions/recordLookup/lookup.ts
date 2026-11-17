@@ -250,3 +250,40 @@ export async function marketPrices(fetcher: FetchLike, token: string, discogsIds
   }
   return prices;
 }
+
+// --- Spotify links, so a record can be listened to before buying it ---
+
+export interface AlbumAsk {
+  artist: string;
+  album: string;
+}
+
+export const linkKey = (ask: AlbumAsk) => `${ask.artist.trim()}|${ask.album.trim()}`;
+
+const plainName = (name: unknown) => String(name ?? "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+  .replace(/^the\s+/, "").replace(/[^a-z0-9]+/g, "");
+
+// The album's Spotify page: the first search result by that artist (any result when none is), or null
+export async function spotifyAlbumLink(fetcher: FetchLike, token: string, ask: AlbumAsk, finishBy = Infinity): Promise<string | null> {
+  const url = `https://api.spotify.com/v1/search?${new URLSearchParams({ q: `album:${ask.album} artist:${ask.artist}`, type: "album", limit: "5" })}`;
+  const items: { external_urls?: { spotify?: string }; artists?: { name?: string }[] }[] =
+    (await getJson(fetcher, url, { headers: { Authorization: `Bearer ${token}` } }, finishBy))?.albums?.items ?? [];
+  const byArtist = items.find((item) => (item.artists ?? []).some((artist) => plainName(artist.name) === plainName(ask.artist)));
+  return (byArtist ?? items[0])?.external_urls?.spotify ?? null;
+}
+
+// Links for up to 20 albums, four at a time, all within albumLimitMs; albums not done by then are left out
+export async function spotifyAlbumLinks(fetcher: FetchLike, clientId: string, clientSecret: string, asks: AlbumAsk[]):
+  Promise<Record<string, string | null>> {
+  const finishBy = Date.now() + albumLimitMs;
+  const list = asks.filter((ask) => ask && String(ask.artist ?? "").trim() && String(ask.album ?? "").trim())
+    .map((ask) => ({ artist: String(ask.artist).slice(0, 200), album: String(ask.album).slice(0, 200) })).slice(0, 20);
+  const links: Record<string, string | null> = {};
+  if (!list.length) return links;
+  const token = await spotifyToken(fetcher, clientId, clientSecret, finishBy);
+  for (let start = 0; start < list.length && Date.now() < finishBy; start += 4) {
+    await Promise.all(list.slice(start, start + 4).map((ask) => spotifyAlbumLink(fetcher, token, ask, finishBy)
+      .then((link) => { links[linkKey(ask)] = link; }, () => { /* too slow: left out */ })));
+  }
+  return links;
+}

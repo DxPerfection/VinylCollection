@@ -23,7 +23,10 @@ const wants: WantRow[] = [
   { id: 3, Artist: "Radiohead", AlbumName: "The Bends", Year: "1995", Genre: "Rock", CoverURL: "", DiscogsID: null, Priority: 2 },
 ];
 
-const actions = () => ({ editWant: vi.fn(async () => true), removeWant: vi.fn(async () => true), gotWant: vi.fn(async () => true) });
+const actions = () => ({
+  editWant: vi.fn(async () => true), removeWant: vi.fn(async () => true), gotWant: vi.fn(async () => true),
+  addWant: vi.fn(async () => true), dismissSuggestion: vi.fn(async () => true),
+});
 const show = (acts = actions()) => {
   render(<WantsScreen data={{ records: sampleRecords, plays: [], wants }} actions={acts} onOpenAdd={() => {}} />);
   return acts;

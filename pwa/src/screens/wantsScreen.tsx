@@ -5,6 +5,7 @@ import { AddSheet } from "../components/addSheet";
 import { CoverArt } from "../components/coverArt";
 import { FindReleaseSheet } from "../components/findReleaseSheet";
 import { PlusIcon } from "../components/icons";
+import { SuggestionsSection } from "../components/suggestionsSection";
 import { WantSheet } from "../components/wantSheet";
 import { isDuplicate } from "../lib/addRecord";
 import { yearText } from "../lib/format";
@@ -16,7 +17,7 @@ import { fetchPrices, type MarketPrice, priceText, priorityLabel, priorityOf, so
 
 interface WantsScreenProps {
   data: CollectionData;
-  actions: Pick<Actions, "editWant" | "removeWant" | "gotWant">;
+  actions: Pick<Actions, "editWant" | "removeWant" | "gotWant" | "addWant" | "dismissSuggestion">;
   onOpenAdd: () => void;
 }
 
@@ -49,6 +50,8 @@ export function WantsScreen({ data, actions, onOpenAdd }: WantsScreenProps) {
         </div>
       </header>
       <div className="scrollArea">
+        <SuggestionsSection data={data} actions={actions} />
+        {wants.length > 0 && <h2 className="dayHeading">Your want list</h2>}
         {wants.length === 0 && (
           <p className="emptyNote">Nothing on your want list yet. Tap + and choose Want on a Discogs result.</p>
         )}

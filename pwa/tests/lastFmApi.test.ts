@@ -3,8 +3,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  allowedReturn, cleanScrobbles, connectLink, getSession, isTimeout, LastFmError, md5, needsReconnect, quickLimitMs, scrobbleParams,
-  sendScrobbles, signature, worthRetrying,
+  allowedReturn, cleanScrobbles, connectLink, forEachArtist, getSession, isTimeout, LastFmError, md5, needsReconnect, quickLimitMs,
+  scrobbleParams, sendScrobbles, signature, similarArtists, topAlbums, topArtists, worthRetrying,
 } from "../../supabase/functions/lastFm/lastFmApi";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -121,5 +121,53 @@ describe("scrobbling", () => {
     expect(cleanScrobbles([{ artist: " A ", track: "T", timestamp: "1763380000.7" }, { artist: "", track: "x", timestamp: 1 }, "junk"]))
       .toEqual([{ artist: "A", track: "T", album: "", timestamp: 1763380000, duration: undefined, trackNumber: undefined }]);
     expect(cleanScrobbles("nope")).toEqual([]);
+  });
+});
+
+describe("for suggestions", () => {
+  it("reads top artists, similar artists and top albums", async () => {
+    const fetcher = vi.fn(async (url: string) => {
+      const method = new URL(url).searchParams.get("method");
+      if (method === "user.gettopartists") return json({ topartists: { artist: [{ name: "Daft Punk", playcount: "120" }] } });
+      if (method === "artist.getsimilar") return json({ similarartists: { artist: [{ name: "Justice", match: "0.83" }, { name: "Air", match: 2 }] } });
+      return json({ topalbums: { album: [
+        { name: "(null)", playcount: "1", image: [] },
+        { name: "Cross", playcount: "50", image: [{ "#text": "small.jpg" }, { "#text": "big.jpg" }] },
+        { name: "Audio, Video, Disco", playcount: "20", image: [{ "#text": "https://x/2a96cbd8b46e442fc41c2b86b821562f.png" }] },
+      ] } });
+    });
+    expect(await topArtists(fetcher, "key123", "harunemre")).toEqual([{ name: "Daft Punk", count: 120 }]);
+    expect(new URL(fetcher.mock.calls[0][0]).searchParams.get("api_sig")).toBeNull(); // no signing needed
+    expect(await similarArtists(fetcher, "key123", "Daft Punk")).toEqual([{ name: "Justice", match: 0.83 }, { name: "Air", match: 1 }]);
+    expect(await topAlbums(fetcher, "key123", "Justice")).toEqual([
+      { name: "Cross", count: 50, imageUrl: "big.jpg" }, { name: "Audio, Video, Disco", count: 20, imageUrl: "" },
+    ]);
+  });
+
+  it("asks for many artists five at a time and leaves out the ones that fail", async () => {
+    let running = 0;
+    let most = 0;
+    const answers = await forEachArtist(["A", "B", "C", "D", "E", "F", "G", " A "], async (artist) => {
+      running += 1;
+      most = Math.max(most, running);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      running -= 1;
+      if (artist === "C") throw new Error("unknown artist");
+      return artist.toLowerCase();
+    });
+    expect(most).toBe(5);
+    expect(Object.keys(answers).sort()).toEqual(["A", "B", "D", "E", "F", "G"]);
+  });
+
+  it("stops starting new artists after 15 seconds", async () => {
+    vi.useFakeTimers();
+    const asked: string[] = [];
+    const pending = forEachArtist(Array.from({ length: 10 }, (_, index) => `Artist ${index}`), (artist) => {
+      asked.push(artist);
+      return new Promise((resolve) => setTimeout(() => resolve(artist), 16000));
+    });
+    await vi.advanceTimersByTimeAsync(17000);
+    await pending;
+    expect(asked).toHaveLength(5);
   });
 });
