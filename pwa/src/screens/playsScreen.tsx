@@ -13,11 +13,9 @@ const pageSize = 40;
 interface PlaysScreenProps {
   data: CollectionData;
   onDelete: (play: PlayRow) => void;
-  // Whether a play went to Last.fm, when Last.fm is connected
-  lastFmStatus?: (play: PlayRow) => "sent" | "waiting" | null;
 }
 
-export function PlaysScreen({ data, onDelete, lastFmStatus }: PlaysScreenProps) {
+export function PlaysScreen({ data, onDelete }: PlaysScreenProps) {
   const [shown, setShown] = useState(pageSize);
   const plays = useMemo(() => recentPlays(data.plays, data.records), [data]);
 
@@ -50,8 +48,6 @@ export function PlaysScreen({ data, onDelete, lastFmStatus }: PlaysScreenProps) 
                   <div className="muted small">
                     {[timeOfDay(when), record?.Artist, partLabel, minutesText(play.DurationMins)].filter(Boolean).join(" · ")}
                     {isPending(play) && <span className="waitingTag"> · waiting to send</span>}
-                    {lastFmStatus?.(play) === "sent" && <span className="lastFmTag"> · on Last.fm</span>}
-                    {lastFmStatus?.(play) === "waiting" && <span className="waitingTag"> · Last.fm waiting</span>}
                   </div>
                 </div>
                 <button type="button" className="iconButton" aria-label={`Delete the play of ${play.AlbumName ?? "this record"}`}

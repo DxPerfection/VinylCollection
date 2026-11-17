@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ToastMessage } from "../components/toast";
 import {
-  dropQueued, getConnectLink, getSessionKey, isLastFmProblem, nextDueAt, playStatus, putBack, queuePlay, readLink, readQueue,
+  dropQueued, getConnectLink, getSessionKey, isLastFmProblem, nextDueAt, putBack, queuePlay, readLink, readQueue,
   saveLink, scrobbleSender, scrobblesFor, sendQueued, tooOld, undoWindowMs, wasSent, clearQueue, type LastFmLink, type QueuedPlay,
 } from "./lastFm";
 import { playKey } from "./offline";
@@ -30,7 +30,6 @@ export interface LastFmHandle {
   dropForPlay: (play: PlayRow) => { queued: QueuedPlay | null; sent: boolean };
   // Puts scrobbles taken off back on the list, for a play saved again under a new id (Undo of a delete)
   restore: (queued: QueuedPlay, play: PlayRow) => void;
-  statusOf: (play: PlayRow) => "sent" | "waiting" | null;
 }
 
 const retryMs = 60 * 1000;
@@ -170,10 +169,8 @@ export function useLastFm(showToast: ShowToast): LastFmHandle {
     refresh();
   }, [refresh]);
 
-  const statusOf = useCallback((play: PlayRow) => playStatus(play, queue), [queue]);
-
   return {
-    link, queue, lastSentAt, sending, connect, disconnect, queueForPlay, dropForPlay, restore, statusOf,
+    link, queue, lastSentAt, sending, connect, disconnect, queueForPlay, dropForPlay, restore,
     sendNow: () => { void flush(); },
   };
 }

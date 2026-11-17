@@ -48,8 +48,8 @@ this one covers everything. It reads the same Supabase tables, behind the same G
   on Last.fm the next time the app opens. Nothing goes out while the Undo message shows. Waiting tracks stay on the
   phone (`src/lib/lastFm.ts`) through lost signal or a slow Last.fm (8 second limit, tried again a minute later);
   plays older than two weeks can't go to Last.fm. Deleting a play takes its waiting tracks off; tracks already
-  scrobbled can't be removed by an app, so the message links to that day in the Last.fm library. The Plays tab
-  marks plays "on Last.fm" or "Last.fm waiting". The key and secret live in the `lastFm` Supabase function.
+  scrobbled can't be removed by an app, so the message links to that day in the Last.fm library. Account shows
+  what is waiting. The key and secret live in the `lastFm` Supabase function.
 - The bottom tab bar
 - Installing to the home screen (app manifest, icons and a service worker)
 

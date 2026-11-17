@@ -7,7 +7,6 @@ import { Toast } from "../src/components/toast";
 import type { RecordView } from "../src/lib/collectionView";
 import type { PlayRow } from "../src/lib/records";
 import { useActions } from "../src/lib/useActions";
-import { PlaysScreen } from "../src/screens/playsScreen";
 import { samplePlays, sampleRecords } from "./sampleData";
 
 vi.mock("../src/lib/supabaseClient", () => ({ getSupabase: () => ({}) }));
@@ -65,13 +64,6 @@ describe("logging and deleting with Last.fm connected", () => {
 });
 
 describe("what shows on screen", () => {
-  it("marks plays sent to Last.fm or still waiting", () => {
-    render(<PlaysScreen data={{ records: sampleRecords, plays: samplePlays, wants: [] }} onDelete={() => {}}
-      lastFmStatus={(play) => play.id === 2 ? "sent" : play.id === 3 ? "waiting" : null} />);
-    expect(screen.getByText("· on Last.fm")).toBeTruthy();
-    expect(screen.getByText("· Last.fm waiting")).toBeTruthy();
-  });
-
   it("shows a link in the message", () => {
     render(<Toast toast={{ id: 1, text: "Removed it", link: { href: "https://www.last.fm/user/x/library", label: "Last.fm" } }} onDone={() => {}} />);
     expect(screen.getByRole("link", { name: "Last.fm" }).getAttribute("href")).toBe("https://www.last.fm/user/x/library");

@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  dropQueued, LastFmProblem, libraryDayUrl, markSent, nextDueAt, oldestMs, playStatus, putBack, queuePlay, readQueue, scrobblesFor,
+  dropQueued, LastFmProblem, libraryDayUrl, markSent, nextDueAt, oldestMs, putBack, queuePlay, readQueue, scrobblesFor,
   sendQueued, tooOld, tracksForPart, wasSent, type Scrobble,
 } from "../src/lib/lastFm";
 import { playKey } from "../src/lib/offline";
@@ -78,7 +78,6 @@ const accepting = () => vi.fn(async (list: Scrobble[]) => ({ accepted: list.leng
 describe("the waiting list", () => {
   it("can take a play off and put it back", () => {
     const queued = queueDiscovery();
-    expect(playStatus(play, readQueue())).toBe("waiting");
     expect(dropQueued({ ...play, id: 999 })?.id).toBe(queued.id); // found by its details after getting a new id
     expect(readQueue()).toEqual([]);
     putBack(queued);
@@ -107,7 +106,7 @@ describe("the waiting list", () => {
     expect(send.mock.calls[1][0].map((item) => item.trackNumber)).toEqual([4, 5, 6]);
     expect(second.sentPlays).toEqual(["Discovery"]);
     expect(readQueue()).toEqual([]);
-    expect(playStatus(play, [])).toBe("sent");
+    expect(wasSent(play)).toBe(true);
   });
 
   it("keeps everything when there's no signal or Last.fm is slow", async () => {

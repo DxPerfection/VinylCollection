@@ -78,7 +78,7 @@ function Shell({ login }: { login: string }) {
   } else if (tab === "play") {
     body = <PlayScreen data={state.data} actions={actions} />;
   } else if (tab === "plays") {
-    body = <PlaysScreen data={state.data} onDelete={actions.removePlay} lastFmStatus={lastFm.link ? lastFm.statusOf : undefined} />;
+    body = <PlaysScreen data={state.data} onDelete={actions.removePlay} />;
   } else if (tab === "wants") {
     body = <WantsScreen data={state.data} actions={actions} onOpenAdd={() => setAdding(true)} />;
   } else {

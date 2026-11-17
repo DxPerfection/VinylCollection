@@ -165,7 +165,7 @@ export function dropQueued(play: PlayRow): QueuedPlay | null {
 
 export const clearQueue = () => writeQueue([]);
 
-// Which plays went to Last.fm, by playKey, so the Plays tab can say so and a delete can point to Last.fm.
+// Which plays went to Last.fm, by playKey, so a delete can point to Last.fm.
 // The newest 500 are kept.
 type SentList = Record<string, number>;
 
@@ -176,11 +176,6 @@ export function markSent(key: string, now: number = Date.now()) {
 }
 
 export const wasSent = (play: PlayRow) => Boolean((read<SentList>(sentKey) ?? {})[playKey(play)]);
-
-export function playStatus(play: PlayRow, queue: QueuedPlay[]): "sent" | "waiting" | null {
-  if (queue.some((item) => samePlay(item, play))) return "waiting";
-  return wasSent(play) ? "sent" : null;
-}
 
 // --- Talking to the lastFm function ---
 

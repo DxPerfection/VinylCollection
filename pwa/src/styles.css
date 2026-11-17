@@ -354,7 +354,6 @@ a { color: var(--accent); }
   font-weight: 600;
 }
 .waitingTag { color: var(--accent); }
-.lastFmTag { color: var(--muted); }
 .errorText { color: var(--error); }
 .toastLink { display: inline-flex; align-items: center; text-decoration: none; }
 .lastFmStatus { display: flex; flex-direction: column; gap: 4px; }
