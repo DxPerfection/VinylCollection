@@ -2,8 +2,8 @@
 // Without a release (hit is null) it is the same form, empty, for adding a record by hand.
 import { useEffect, useMemo, useState } from "react";
 
-import { blankEdits, conditions, editsFrom, handRelease, isDuplicate, knownGenres, newInventoryRow, type RecordEdits } from "../lib/addRecord";
-import { type DiscogsHit, getRelease, type ReleaseDetails } from "../lib/lookup";
+import { blankEdits, conditions, editsFrom, handRelease, hitRelease, isDuplicate, knownGenres, newInventoryRow, type RecordEdits } from "../lib/addRecord";
+import { type DiscogsHit, getRelease, isLookupTimeout, type ReleaseDetails } from "../lib/lookup";
 import type { VinylRecord } from "../lib/records";
 import { getSupabase } from "../lib/supabaseClient";
 import { pressingLine } from "../lib/useDiscogsSearch";
@@ -32,15 +32,20 @@ export function AddSheet({ hit, startWith, records, onAdd, onClose }: AddSheetPr
   useEffect(() => {
     if (!hit) return;
     let current = true;
+    const fill = (details: ReleaseDetails) => {
+      setRelease(details);
+      const filled = editsFrom(details, known);
+      setEdits(filled);
+      setOtherGenre(Boolean(filled.genre) && !known.includes(filled.genre));
+    };
     getRelease(getSupabase(), hit.discogsId)
-      .then((details) => {
+      .then((details) => current && fill(details))
+      .catch((error) => {
         if (!current) return;
-        setRelease(details);
-        const filled = editsFrom(details, known);
-        setEdits(filled);
-        setOtherGenre(Boolean(filled.genre) && !known.includes(filled.genre));
-      })
-      .catch((error) => current && setProblem(error instanceof Error ? error.message : String(error)));
+        // Carry on with what the search gave rather than leave you stuck
+        setProblem(isLookupTimeout(error) ? "Discogs was too slow to answer" : `Couldn't get the details (${error instanceof Error ? error.message : String(error)})`);
+        fill(hitRelease(hit));
+      });
     return () => { current = false; };
   }, [hit, known]);
 
@@ -65,7 +70,7 @@ export function AddSheet({ hit, startWith, records, onAdd, onClose }: AddSheetPr
           <div className="muted">{byHand ? (edits?.artist.trim() || "Type the details below") : edits?.artist ?? hit.artist}</div>
           {hit && <div className="muted tiny">{pressingLine(release ?? hit)}</div>}
           {byHand && <div className="muted tiny">Without Discogs. You can match it on Discogs later from the record.</div>}
-          {hit && release && (
+          {hit && release && !problem && (
             <div className="muted tiny">
               {release.coverFromSpotify ? "Cover from Spotify" : "Cover from Discogs"} · {release.lengthFromSpotify ? "length from Spotify" : "length from Discogs"}
             </div>
@@ -74,7 +79,11 @@ export function AddSheet({ hit, startWith, records, onAdd, onClose }: AddSheetPr
       </div>
 
       {!release && !problem && <p className="muted small" role="status">Getting the tracklist, cover and length…</p>}
-      {problem && <p className="errorNote small" role="alert">Couldn't get the details: {problem}</p>}
+      {problem && (
+        <p className="errorNote small" role="alert">
+          {problem}, so there's no tracklist or length. You can still add it, type the length, and use Match on Discogs on the record later.
+        </p>
+      )}
 
       {release && edits && (
         <>

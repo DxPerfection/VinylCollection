@@ -52,4 +52,15 @@ describe("fetchPrices", () => {
     await fetchPrices(supabase, [1], start + 7 * 3600000);
     expect(invoke.mock.calls[2][1].body.discogsIds).toEqual([1]);
   });
+
+  it("keeps only the prices that came back, and asks again for the rest", async () => {
+    sessionStorage.clear();
+    const invoke = vi.fn(async () => ({ data: { prices: { "11": null } }, error: null }));
+    const supabase = { functions: { invoke } } as never;
+    const start = Date.UTC(2026, 10, 17, 12);
+    expect(await fetchPrices(supabase, [11, 12], start)).toEqual({ "11": null });
+    expect((invoke.mock.calls[0] as unknown[])[1]).toMatchObject({ timeout: 17000 });
+    await fetchPrices(supabase, [11, 12], start + 60000);
+    expect((invoke.mock.calls[1] as unknown as [string, { body: { discogsIds: number[] } }])[1].body.discogsIds).toEqual([12]);
+  });
 });

@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { MarketPrice } from "../../../supabase/functions/recordLookup/lookup";
 import type { DiscogsHit } from "./lookup";
-import { callLookup } from "./lookup";
+import { albumWaitMs, callLookup } from "./lookup";
 import type { WantRow } from "./records";
 
 export type { MarketPrice };
@@ -59,7 +59,8 @@ export function wantAsHit(want: WantRow): DiscogsHit | null {
   };
 }
 
-// Prices for six hours in this browser tab, so the list opens quickly (the Streamlit app keeps them as long)
+// Prices for six hours in this browser tab, so the list opens quickly (the Streamlit app keeps them as long).
+// A release Discogs was too slow for has no entry in the answer.
 const cacheKey = "vinylWantPrices";
 const cacheHours = 6;
 
@@ -79,15 +80,17 @@ export async function fetchPrices(supabase: SupabaseClient, discogsIds: number[]
   const fresh = (id: number) => cache[id] && now - cache[id].at < cacheHours * 3600000;
   const missing = discogsIds.filter((id) => !fresh(id));
   if (missing.length) {
-    const { prices } = await callLookup<{ prices: Record<string, MarketPrice | null> }>(supabase, { action: "prices", discogsIds: missing });
-    for (const id of missing) cache[id] = { at: now, price: prices?.[id] ?? null };
+    const { prices } = await callLookup<{ prices: Record<string, MarketPrice | null> }>(supabase, { action: "prices", discogsIds: missing },
+      albumWaitMs);
+    // Releases Discogs was too slow for are left out, so they are asked for again next time
+    for (const id of missing) if (prices && String(id) in prices) cache[id] = { at: now, price: prices[String(id)] };
     try {
       sessionStorage.setItem(cacheKey, JSON.stringify(cache));
     } catch {
       // no storage: prices are fetched again next time
     }
   }
-  return Object.fromEntries(discogsIds.map((id) => [String(id), cache[id]?.price ?? null]));
+  return Object.fromEntries(discogsIds.filter((id) => cache[id]).map((id) => [String(id), cache[id].price]));
 }
 
 export async function updateWant(supabase: SupabaseClient, id: number, change: Partial<WantRow>): Promise<WantRow> {

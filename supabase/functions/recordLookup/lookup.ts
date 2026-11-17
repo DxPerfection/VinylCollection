@@ -27,13 +27,34 @@ export interface ReleaseDetails extends DiscogsHit {
   lengthFromSpotify: boolean;
 }
 
-const timeoutMs = 10000;
+// How long Discogs and Spotify get before the lookup gives up and carries on without them
+export const quickLimitMs = 8000; // one search or one call
+export const albumLimitMs = 15000; // a whole album (Discogs, then Spotify for the cover and length), or a want list's prices
 const userAgent = "VinylCollectionApp/4.0";
 
-async function getJson(fetcher: FetchLike, url: string, init: RequestInit = {}): Promise<any> {
-  const response = await fetcher(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
-  if (!response.ok) throw new Error(`${new URL(url).hostname} answered ${response.status}`);
-  return response.json();
+export function timeoutError(): Error {
+  const error = new Error("Discogs took too long to answer.");
+  error.name = "TimeoutError";
+  return error;
+}
+
+export const isTimeout = (error: unknown) => error instanceof Error && error.name === "TimeoutError";
+
+// One outside call, given up after quickLimitMs, or sooner when finishBy (a Date.now() time) comes first
+async function getJson(fetcher: FetchLike, url: string, init: RequestInit = {}, finishBy = Infinity): Promise<any> {
+  const limitMs = Math.min(quickLimitMs, finishBy - Date.now());
+  if (limitMs <= 0) throw timeoutError();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(timeoutError()), limitMs);
+  try {
+    const response = await fetcher(url, { ...init, signal: controller.signal });
+    if (!response.ok) throw new Error(`${new URL(url).hostname} answered ${response.status}`);
+    return await response.json();
+  } catch (error) {
+    throw controller.signal.aborted ? timeoutError() : error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // Discogs titles read "Artist - Album"; artist names may carry a number such as "Sertab (2)"
@@ -109,28 +130,29 @@ export function sideMinutes(tracks: DiscogsTrack[], totalMins: number): string {
   return weights.map(([side, weight]) => `${side}:${Math.max(1, Math.round((totalMins * weight) / totalWeight))}`).join("|");
 }
 
-async function spotifyToken(fetcher: FetchLike, clientId: string, clientSecret: string): Promise<string> {
+async function spotifyToken(fetcher: FetchLike, clientId: string, clientSecret: string, finishBy: number): Promise<string> {
   const data = await getJson(fetcher, "https://accounts.spotify.com/api/token", {
     method: "POST",
     headers: { Authorization: `Basic ${btoa(`${clientId}:${clientSecret}`)}`, "Content-Type": "application/x-www-form-urlencoded" },
     body: "grant_type=client_credentials",
-  });
+  }, finishBy);
   return String(data.access_token);
 }
 
-// The HD cover and the total length of the first Spotify match for this artist and album, like the Streamlit app
-export async function spotifyAlbum(fetcher: FetchLike, clientId: string, clientSecret: string, artist: string, album: string):
-  Promise<{ coverUrl: string; durationMins: number } | null> {
-  const token = await spotifyToken(fetcher, clientId, clientSecret);
+// The HD cover and the total length of the first Spotify match for this artist and album, like the Streamlit app.
+// Every Spotify call has to be back by finishBy.
+export async function spotifyAlbum(fetcher: FetchLike, clientId: string, clientSecret: string, artist: string, album: string,
+  finishBy = Date.now() + albumLimitMs): Promise<{ coverUrl: string; durationMins: number } | null> {
+  const token = await spotifyToken(fetcher, clientId, clientSecret, finishBy);
   const headers = { Authorization: `Bearer ${token}` };
   const searchUrl = `https://api.spotify.com/v1/search?${new URLSearchParams({ q: `artist:${artist} album:${album}`, type: "album", limit: "1" })}`;
-  const found = (await getJson(fetcher, searchUrl, { headers }))?.albums?.items?.[0];
+  const found = (await getJson(fetcher, searchUrl, { headers }, finishBy))?.albums?.items?.[0];
   if (!found?.id) return null;
-  const details = await getJson(fetcher, `https://api.spotify.com/v1/albums/${found.id}`, { headers });
+  const details = await getJson(fetcher, `https://api.spotify.com/v1/albums/${found.id}`, { headers }, finishBy);
   const tracks: { duration_ms?: number }[] = [...(details?.tracks?.items ?? [])];
   let next: string | null = details?.tracks?.next ?? null;
   while (next) {
-    const page = await getJson(fetcher, next, { headers });
+    const page = await getJson(fetcher, next, { headers }, finishBy);
     tracks.push(...(page?.items ?? []));
     next = page?.next ?? null;
   }
@@ -144,10 +166,13 @@ export interface Keys {
   spotifyClientSecret?: string;
 }
 
+// Discogs gets quickLimitMs; Spotify gets whatever is left of albumLimitMs, and when it runs out the record still
+// comes back with the Discogs cover and length
 export async function releaseDetails(fetcher: FetchLike, keys: Keys, discogsId: number): Promise<ReleaseDetails> {
+  const finishBy = Date.now() + albumLimitMs;
   const release = await getJson(fetcher, `https://api.discogs.com/releases/${discogsId}`, {
     headers: { "User-Agent": userAgent, Authorization: `Discogs token=${keys.discogsToken}` },
-  });
+  }, finishBy);
   const tracks: DiscogsTrack[] = release?.tracklist ?? [];
   const songs = tracks.filter((track) => (track.type_ ?? "track") === "track");
   const discogsMins = Math.floor(songs.reduce((sum, track) => sum + toSeconds(track.duration ?? ""), 0) / 60);
@@ -157,9 +182,9 @@ export async function releaseDetails(fetcher: FetchLike, keys: Keys, discogsId: 
   let spotify: { coverUrl: string; durationMins: number } | null = null;
   if (keys.spotifyClientId && keys.spotifyClientSecret && artist && album) {
     try {
-      spotify = await spotifyAlbum(fetcher, keys.spotifyClientId, keys.spotifyClientSecret, artist, album);
+      spotify = await spotifyAlbum(fetcher, keys.spotifyClientId, keys.spotifyClientSecret, artist, album, finishBy);
     } catch {
-      spotify = null; // Discogs alone is still enough to add the record
+      spotify = null; // slow or failed: Discogs alone is still enough to add the record
     }
   }
 
@@ -193,31 +218,35 @@ export interface MarketPrice {
 }
 
 // The lowest Discogs marketplace price and how many copies are for sale, like the Streamlit want list; null when
-// Discogs can't say for that release
-export async function marketPrice(fetcher: FetchLike, token: string, discogsId: number, currency: string): Promise<MarketPrice | null> {
+// Discogs can't say for that release. Running out of time is not an answer, so that still throws.
+export async function marketPrice(fetcher: FetchLike, token: string, discogsId: number, currency: string,
+  finishBy = Infinity): Promise<MarketPrice | null> {
   try {
     const url = `https://api.discogs.com/marketplace/stats/${discogsId}?${new URLSearchParams({ curr_abbr: currency })}`;
-    const data = await getJson(fetcher, url, { headers: { "User-Agent": userAgent, Authorization: `Discogs token=${token}` } });
+    const data = await getJson(fetcher, url, { headers: { "User-Agent": userAgent, Authorization: `Discogs token=${token}` } }, finishBy);
     const value = Number(data?.lowest_price?.value);
     return {
       lowest: data?.lowest_price && Number.isFinite(value) ? value : null,
       currency: String(data?.lowest_price?.currency ?? currency),
       forSale: Number(data?.num_for_sale ?? 0) || 0,
     };
-  } catch {
+  } catch (error) {
+    if (isTimeout(error)) throw error;
     return null;
   }
 }
 
-// Prices for a whole want list: at most 50 releases, four at a time, to stay well inside Discogs' rate limit
+// Prices for a whole want list: at most 50 releases, four at a time, to stay well inside Discogs' rate limit.
+// All of it has to be back within albumLimitMs; releases not checked by then are left out, to try again next time.
 export async function marketPrices(fetcher: FetchLike, token: string, discogsIds: number[], currency: string):
   Promise<Record<string, MarketPrice | null>> {
+  const finishBy = Date.now() + albumLimitMs;
   const ids = [...new Set(discogsIds.map(Number).filter((id) => Number.isInteger(id) && id > 0))].slice(0, 50);
   const prices: Record<string, MarketPrice | null> = {};
-  for (let start = 0; start < ids.length; start += 4) {
+  for (let start = 0; start < ids.length && Date.now() < finishBy; start += 4) {
     const batch = ids.slice(start, start + 4);
-    const found = await Promise.all(batch.map((id) => marketPrice(fetcher, token, id, currency)));
-    batch.forEach((id, index) => { prices[String(id)] = found[index]; });
+    await Promise.all(batch.map((id) => marketPrice(fetcher, token, id, currency, finishBy)
+      .then((price) => { prices[String(id)] = price; }, () => { /* too slow: left out */ })));
   }
   return prices;
 }

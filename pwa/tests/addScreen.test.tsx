@@ -7,12 +7,14 @@ import { sampleRecords } from "./sampleData";
 vi.mock("../src/lib/supabaseClient", () => ({ getSupabase: () => ({}), isConfigured: () => true }));
 const searchReleases = vi.fn();
 const getRelease = vi.fn();
-vi.mock("../src/lib/lookup", () => ({
+vi.mock("../src/lib/lookup", async (actual) => ({
+  ...(await actual<typeof import("../src/lib/lookup")>()),
   searchReleases: (...args: unknown[]) => searchReleases(...args),
   getRelease: (...args: unknown[]) => getRelease(...args),
 }));
 
 const { AddScreen } = await import("../src/screens/addScreen");
+const { LookupTimeout } = await import("../src/lib/lookup");
 const { MatchSheet } = await import("../src/components/matchSheet");
 
 const hits: DiscogsHit[] = [
@@ -112,6 +114,29 @@ describe("AddScreen", () => {
     await act(async () => { fireEvent.click(within(screen.getByText("The Bends").closest("li")!).getByRole("button", { name: "Want" })); });
     expect(screen.getByRole("alert").textContent).toBe("The Bends is already in your collection.");
     expect(actions.addWant).toHaveBeenCalledTimes(1);
+  });
+
+  it("still adds a record, without tracklist or length, when Discogs is too slow for the details", async () => {
+    getRelease.mockRejectedValue(new LookupTimeout());
+    const actions = show();
+    await typeAndWait(screen.getByLabelText("Search Discogs"), "animals");
+    await act(async () => { fireEvent.click(within(screen.getByText("Animals").closest("li")!).getByRole("button", { name: "Add" })); });
+    const sheet = screen.getByRole("dialog", { name: "Add Animals" });
+    expect(within(sheet).getByRole("alert").textContent).toContain("Discogs was too slow to answer, so there's no tracklist or length.");
+    expect((within(sheet).getByLabelText("Length (min)") as HTMLInputElement).value).toBe("");
+    fireEvent.change(within(sheet).getByLabelText("Length (min)"), { target: { value: "41" } });
+    await act(async () => { fireEvent.click(within(sheet).getByRole("button", { name: "Add to collection" })); });
+    expect(actions.addRecord.mock.calls[0][0]).toMatchObject({
+      Artist: "Pink Floyd", AlbumName: "Animals", Year: "1977", Genre: "Rock", DurationMins: 41, CoverURL: "", Tracklist: "",
+      DiscogsID: null, SideMins: null,
+    });
+  });
+
+  it("says when a search is too slow", async () => {
+    searchReleases.mockRejectedValue(new LookupTimeout());
+    show();
+    await typeAndWait(screen.getByLabelText("Search Discogs"), "floyd");
+    expect(screen.getByRole("alert").textContent).toBe("Discogs is slow to answer right now. Try again in a moment.");
   });
 
   it("says why when Discogs can't be reached", async () => {

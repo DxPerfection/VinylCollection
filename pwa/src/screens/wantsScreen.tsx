@@ -89,7 +89,9 @@ function priceLine(want: WantRow, prices: PriceState): string {
   if (!want.DiscogsID) return "";
   const price = prices.values[String(want.DiscogsID)];
   if (price !== undefined) return priceText(price);
-  return prices.status === "loading" ? "Checking Discogs prices…" : "";
+  if (prices.status === "loading") return "Checking Discogs prices…";
+  // Left out because Discogs was slow, or the whole call failed: it is asked for again next time
+  return prices.status === "failed" ? "Couldn't check the price right now" : "Discogs was slow; price next time";
 }
 
 interface PriceState {
