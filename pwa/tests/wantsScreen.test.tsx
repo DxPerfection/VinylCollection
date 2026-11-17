@@ -8,7 +8,8 @@ vi.mock("../src/lib/supabaseClient", () => ({ getSupabase: () => ({}), isConfigu
 const invoke = vi.fn();
 const searchReleases = vi.fn();
 const getRelease = vi.fn();
-vi.mock("../src/lib/lookup", () => ({
+vi.mock("../src/lib/lookup", async (actual) => ({
+  ...(await actual<typeof import("../src/lib/lookup")>()),
   callLookup: (...args: unknown[]) => invoke(...args),
   searchReleases: (...args: unknown[]) => searchReleases(...args),
   getRelease: (...args: unknown[]) => getRelease(...args),

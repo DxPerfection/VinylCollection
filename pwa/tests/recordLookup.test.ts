@@ -1,8 +1,10 @@
 // @vitest-environment node
 // The Supabase function's Discogs and Spotify logic, with Discogs and Spotify faked
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { marketPrices, releaseDetails, searchDiscogs, sideMinutes, sideOf, splitTitle, toDiscogsHit, toSeconds } from "../../supabase/functions/recordLookup/lookup";
+import {
+  albumLimitMs, marketPrices, quickLimitMs, releaseDetails, searchDiscogs, sideMinutes, sideOf, splitTitle, toDiscogsHit, toSeconds,
+} from "../../supabase/functions/recordLookup/lookup";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
@@ -126,5 +128,72 @@ describe("marketPrices", () => {
     expect(asked).toHaveLength(3);
     expect(asked[0]).toBe("https://api.discogs.com/marketplace/stats/1?curr_abbr=TRY");
     expect(prices).toEqual({ "1": { lowest: 21.5, currency: "TRY", forSale: 7 }, "2": null, "3": { lowest: null, currency: "TRY", forSale: 0 } });
+  });
+});
+
+// An answer that takes waitMs to arrive, or never comes (Infinity), and stops when the lookup gives up
+function slowly(init: RequestInit | undefined, waitMs: number, answer: () => Response) {
+  return new Promise<Response>((resolve, reject) => {
+    const timer = Number.isFinite(waitMs) ? setTimeout(() => resolve(answer()), waitMs) : undefined;
+    init?.signal?.addEventListener("abort", () => { clearTimeout(timer); reject(init.signal?.reason); });
+  });
+}
+
+describe("time limits", () => {
+  afterEach(() => vi.useRealTimers());
+
+  const release = { title: "Meddle", artists_sort: "Pink Floyd", images: [{ uri: "https://discogs/m.jpg" }],
+    tracklist: [{ position: "A1", title: "One Of These Days", duration: "6:00" }, { position: "B1", title: "Echoes", duration: "23:30" }] };
+
+  it("gives up on a search after 8 seconds", async () => {
+    vi.useFakeTimers();
+    const found = searchDiscogs((_url, init) => slowly(init, Infinity, () => json({})), "t", "meddle");
+    const outcome = expect(found).rejects.toMatchObject({ name: "TimeoutError", message: "Discogs took too long to answer." });
+    await vi.advanceTimersByTimeAsync(quickLimitMs);
+    await outcome;
+    expect(quickLimitMs).toBe(8000);
+  });
+
+  it("gives up on the release itself after 8 seconds", async () => {
+    vi.useFakeTimers();
+    const found = releaseDetails((_url, init) => slowly(init, Infinity, () => json(release)),
+      { discogsToken: "t" }, 7);
+    const outcome = expect(found).rejects.toMatchObject({ name: "TimeoutError" });
+    await vi.advanceTimersByTimeAsync(quickLimitMs);
+    await outcome;
+  });
+
+  it("stops waiting for a slow Spotify at 15 seconds and keeps the Discogs cover and length", async () => {
+    vi.useFakeTimers();
+    const start = Date.now();
+    // Discogs answers at once; each Spotify call takes 6 seconds, so the third would end past the limit
+    const fetcher = (url: string, init?: RequestInit) => {
+      if (url.includes("api.discogs.com")) return Promise.resolve(json(release));
+      if (url.includes("accounts.spotify.com")) return slowly(init, 6000, () => json({ access_token: "sp" }));
+      if (url.includes("/v1/search")) return slowly(init, 6000, () => json({ albums: { items: [{ id: "x", images: [{ url: "https://spotify/hd.jpg" }] }] } }));
+      return slowly(init, 6000, () => json({ tracks: { items: [{ duration_ms: 2820000 }], next: null } }));
+    };
+    let details: Awaited<ReturnType<typeof releaseDetails>> | undefined;
+    void releaseDetails(fetcher, { discogsToken: "t", spotifyClientId: "i", spotifyClientSecret: "s" }, 7).then((found) => { details = found; });
+    await vi.advanceTimersByTimeAsync(albumLimitMs);
+    expect(Date.now() - start).toBe(albumLimitMs);
+    expect(details).toMatchObject({ coverUrl: "https://discogs/m.jpg", durationMins: 29, coverFromSpotify: false, lengthFromSpotify: false });
+    expect(albumLimitMs).toBe(15000);
+  });
+
+  it("leaves out want list prices Discogs is too slow for, and stops at 15 seconds", async () => {
+    vi.useFakeTimers();
+    const asked: string[] = [];
+    const fetcher = (url: string, init?: RequestInit) => {
+      asked.push(url);
+      if (url.includes("/stats/1?")) return Promise.resolve(json({ lowest_price: { value: 10, currency: "EUR" }, num_for_sale: 2 }));
+      return slowly(init, Infinity, () => json({}));
+    };
+    let prices: Record<string, unknown> | undefined;
+    void marketPrices(fetcher, "t", [1, 2, 3, 4, 5, 6, 7, 8, 9], "EUR").then((found) => { prices = found; });
+    await vi.advanceTimersByTimeAsync(albumLimitMs);
+    // First four at once (2 to 4 hang for 8 s), next four get the 7 s left, and 9 is never asked
+    expect(prices).toEqual({ "1": { lowest: 10, currency: "EUR", forSale: 2 } });
+    expect(asked).toHaveLength(8);
   });
 });

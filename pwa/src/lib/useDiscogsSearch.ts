@@ -1,7 +1,7 @@
 // Searching Discogs as you type: waits for a short pause, and ignores answers to older searches
 import { useEffect, useState } from "react";
 
-import { type DiscogsHit, searchReleases } from "./lookup";
+import { type DiscogsHit, isLookupTimeout, searchReleases } from "./lookup";
 import { getSupabase } from "./supabaseClient";
 
 export type SearchState =
@@ -26,7 +26,10 @@ export function useDiscogsSearch(query: string, pauseMs = 500): SearchState {
         const results = await searchReleases(getSupabase(), text);
         if (current) setState({ status: "done", results });
       } catch (error) {
-        if (current) setState({ status: "error", message: error instanceof Error ? error.message : String(error) });
+        if (!current) return;
+        const message = isLookupTimeout(error) ? "Discogs is slow to answer right now. Try again in a moment."
+          : `Couldn't search Discogs: ${error instanceof Error ? error.message : String(error)}`;
+        setState({ status: "error", message });
       }
     }, pauseMs);
     return () => {

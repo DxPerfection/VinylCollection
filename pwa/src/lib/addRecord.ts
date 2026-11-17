@@ -91,6 +91,12 @@ export function handRelease(coverUrl: string, tracklist: string): ReleaseDetails
   };
 }
 
+// What the search result already said, for when Discogs is too slow or fails to give the whole release: no
+// tracklist, length or Discogs match, so "Match on Discogs" on the record can fill those in later
+export function hitRelease(hit: DiscogsHit): ReleaseDetails {
+  return { ...handRelease(hit.coverUrl, ""), artist: hit.artist, album: hit.album, year: hit.year, genre: hit.genre };
+}
+
 export const blankEdits = (artist = "", album = ""): RecordEdits =>
   ({ artist, album, year: "", genre: "", subGenre: "", durationMins: 0, condition: "New" });
 

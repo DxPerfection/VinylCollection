@@ -1,7 +1,8 @@
 // Supabase Edge Function: Discogs and Spotify lookups for adding records in the phone app.
 // The keys stay here as function secrets (DISCOGS_TOKEN, SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET), so they never
 // reach the web page. Only the owner's signed-in account gets an answer: the same is_vinyl_owner() check as the
-// tables (migrations/003_owner_only.sql). Every outside call gives up after 10 seconds.
+// tables (migrations/003_owner_only.sql). A search gives up after 8 seconds; a whole album or a want list's prices
+// after 15 (lookup.ts says what is skipped then).
 //
 // POST { "action": "search", "query": "rust in peace" }  ->  { "results": DiscogsHit[] }
 // POST { "action": "release", "discogsId": 1234567 }      ->  { "release": ReleaseDetails }
@@ -9,7 +10,7 @@
 // Prices are in DISCOGS_CURRENCY (a function secret), EUR when it isn't set.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-import { marketPrices, releaseDetails, searchDiscogs } from "./lookup.ts";
+import { isTimeout, marketPrices, releaseDetails, searchDiscogs } from "./lookup.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -61,7 +62,7 @@ Deno.serve(async (request) => {
     }
     return reply({ error: "Unknown action." }, 400);
   } catch (error) {
-    const message = error instanceof Error && error.name === "TimeoutError" ? "Discogs took too long to answer." : String(error instanceof Error ? error.message : error);
-    return reply({ error: message }, 502);
+    if (isTimeout(error)) return reply({ error: "Discogs took too long to answer.", timedOut: true }, 504);
+    return reply({ error: String(error instanceof Error ? error.message : error) }, 502);
   }
 });
