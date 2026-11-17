@@ -8,6 +8,7 @@ import type { NamedCount, SimilarArtist, TopAlbum } from "../../../supabase/func
 import { callLastFm, longWaitMs } from "./lastFm";
 import { type DiscogsHit, searchReleases } from "./lookup";
 import { recentPlays } from "./plays";
+import { type AlbumAsk, fetchSpotifyLinks, linkKey } from "./spotify";
 import type { CollectionData, WantRow } from "./records";
 import { fetchPrices, type MarketPrice } from "./wants";
 
@@ -17,7 +18,7 @@ export type { NamedCount, SimilarArtist, TopAlbum };
 
 // "The Beatles", "Beatles" and "beatles " are the same artist; "Sigur Rós" and "Sigur Ros" too
 export function artistKey(name: unknown): string {
-  return String(name ?? "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase()
+  return String(name ?? "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
     .replace(/&/g, "and").replace(/^the\s+/, "").replace(/[^a-z0-9]+/g, "");
 }
 
@@ -141,6 +142,7 @@ export interface Suggestion {
   discogsId: number | null;
   reason: string;
   price?: MarketPrice | null; // undefined: not checked
+  spotifyUrl?: string | null; // the album on Spotify; missing or null: the card links to a Spotify search instead
 }
 
 export function asWantRow(suggestion: Suggestion): Omit<WantRow, "id"> {
@@ -160,6 +162,7 @@ export interface SuggestionSources {
   topAlbums: (artists: string[]) => Promise<Record<string, TopAlbum[]>>;
   search: (query: string) => Promise<DiscogsHit[]>;
   prices: (discogsIds: number[]) => Promise<Record<string, MarketPrice | null>>;
+  spotify: (albums: AlbumAsk[]) => Promise<Record<string, string | null>>;
 }
 
 export function liveSources(supabase: SupabaseClient): SuggestionSources {
@@ -171,6 +174,7 @@ export function liveSources(supabase: SupabaseClient): SuggestionSources {
       longWaitMs)).albums ?? {},
     search: (query) => searchReleases(supabase, query),
     prices: (discogsIds) => fetchPrices(supabase, discogsIds),
+    spotify: (albums) => fetchSpotifyLinks(supabase, albums),
   };
 }
 
@@ -216,9 +220,18 @@ export async function buildSuggestions(data: CollectionData, dismissed: string[]
     suggestions.push(...found);
   }
 
+  // Prices and Spotify links at the same time; either one being slow only leaves it out
   const ids = suggestions.map((item) => item.discogsId).filter((id): id is number => Boolean(id));
-  const prices = ids.length ? await sources.prices(ids).catch(() => ({} as Record<string, MarketPrice | null>)) : {};
-  return suggestions.map((item) => item.discogsId && String(item.discogsId) in prices ? { ...item, price: prices[String(item.discogsId)] } : item);
+  const asks = suggestions.map((item) => ({ artist: item.artist, album: item.album }));
+  const [prices, links] = await Promise.all([
+    ids.length ? sources.prices(ids).catch(() => ({} as Record<string, MarketPrice | null>)) : Promise.resolve({} as Record<string, MarketPrice | null>),
+    sources.spotify(asks).catch(() => ({} as Record<string, string | null>)),
+  ]);
+  return suggestions.map((item) => ({
+    ...item,
+    ...(item.discogsId && String(item.discogsId) in prices ? { price: prices[String(item.discogsId)] } : {}),
+    spotifyUrl: links[linkKey({ artist: item.artist, album: item.album })] ?? null,
+  }));
 }
 
 // --- Kept on the phone for a day ---

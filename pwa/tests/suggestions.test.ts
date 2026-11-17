@@ -97,6 +97,7 @@ function fakeSources(overrides: Partial<SuggestionSources> = {}): SuggestionSour
       catalogNumber: "", format: "Vinyl, LP, Album", country: "France",
     }] : []),
     prices: vi.fn(async () => ({ "777": { lowest: 24.5, currency: "EUR", forSale: 12 } })),
+    spotify: vi.fn(async () => ({ "Justice|Cross": "https://open.spotify.com/album/cross", "Portishead|Dummy": null })),
     ...overrides,
   };
 }
@@ -114,6 +115,8 @@ describe("the whole list", () => {
     // Discogs couldn't find it: Last.fm's picture, no price
     expect(list.find((item) => item.artist === "Portishead")).toMatchObject({ discogsId: null, coverUrl: "https://lastfm/dummy.jpg" });
     expect(list.find((item) => item.artist === "Air")).toBeUndefined(); // already wanted
+    expect(justice.spotifyUrl).toBe("https://open.spotify.com/album/cross");
+    expect(list.find((item) => item.artist === "Portishead")?.spotifyUrl).toBeNull();
   });
 
   it("leaves out artists said no to, and carries on without Last.fm top artists", async () => {

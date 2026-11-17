@@ -268,6 +268,7 @@ a { color: var(--accent); }
 .suggestionRow { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .suggestionReason { color: var(--muted); font-style: italic; }
 .suggestionButtons { display: flex; gap: 8px; margin-top: 6px; }
+.listenLink { font-size: 13px; text-decoration: none; margin-top: 6px; align-self: flex-start; }
 .priorityPill {
   flex: none; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 12px; border: 1px solid var(--lineStrong);
   color: var(--muted);

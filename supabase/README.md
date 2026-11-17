@@ -10,6 +10,8 @@ Server-side helpers for the phone app in `pwa/`. They hold keys that must not be
   with the Discogs cover and length instead.
   It also gives the lowest Discogs marketplace price and copies for sale for the want list; prices not checked
   within 15 seconds are left out and asked for again next time.
+  It also finds albums' Spotify pages (`spotifyLinks`, up to 20 at a time, within 15 seconds) for the "Listen on
+  Spotify" links on suggestions and want list records.
 
 - `functions/lastFm/`: Last.fm for the phone app: the link to Last.fm's "allow this app" page, swapping the token
   Last.fm sends back for a session key, and sending scrobbles (at most 50 tracks a call). The API key and shared

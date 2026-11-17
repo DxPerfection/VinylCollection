@@ -1,7 +1,9 @@
 // One want: change its priority and note, mark it as bought (Got it), or take it off the list
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { WantRow } from "../lib/records";
+import { cachedLink, fetchSpotifyLinks, linkKey, listenUrl } from "../lib/spotify";
+import { getSupabase } from "../lib/supabaseClient";
 import { addedText, discogsLink, priceText, priorities, priorityOf, type MarketPrice } from "../lib/wants";
 import { yearText } from "../lib/format";
 import { BottomSheet } from "./bottomSheet";
@@ -25,6 +27,7 @@ export function WantSheet({ want, price, inCollection, onSave, onGotIt, onRemove
   const changed = priority !== priorityOf(want) || note.trim() !== (want.Note ?? "").trim();
   const details = [yearText(want.Year), want.Genre].filter(Boolean).join(" · ");
   const prices = priceText(price);
+  const spotifyUrl = useSpotifyLink(want.Artist ?? "", want.AlbumName ?? "");
 
   const run = async (work: () => Promise<boolean>) => {
     setBusy(true);
@@ -48,6 +51,11 @@ export function WantSheet({ want, price, inCollection, onSave, onGotIt, onRemove
       <a className="discogsLine" href={discogsLink(want)} target="_blank" rel="noreferrer">
         <span>{prices || "Prices on Discogs"}</span>
         <span className="linkish">{want.DiscogsID ? "See it on Discogs" : "Find it on Discogs"} <ExternalIcon /></span>
+      </a>
+
+      <a className="discogsLine" href={listenUrl(want.Artist ?? "", want.AlbumName ?? "", spotifyUrl)} target="_blank" rel="noreferrer">
+        <span>Listen before you buy</span>
+        <span className="linkish">Listen on Spotify <ExternalIcon /></span>
       </a>
 
       <div className="fieldGroup">
@@ -78,4 +86,18 @@ export function WantSheet({ want, price, inCollection, onSave, onGotIt, onRemove
       )}
     </BottomSheet>
   );
+}
+
+// The album's Spotify page once found; until then (or if Spotify doesn't have it) the link is a Spotify search
+function useSpotifyLink(artist: string, album: string): string | null {
+  const [link, setLink] = useState<string | null>(() => cachedLink({ artist, album }) ?? null);
+  useEffect(() => {
+    if (!artist || !album || cachedLink({ artist, album }) !== undefined) return;
+    let current = true;
+    fetchSpotifyLinks(getSupabase(), [{ artist, album }])
+      .then((links) => current && setLink(links[linkKey({ artist, album })] ?? null))
+      .catch(() => { /* the search link still works */ });
+    return () => { current = false; };
+  }, [artist, album]);
+  return link;
 }

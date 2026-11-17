@@ -197,3 +197,25 @@ describe("time limits", () => {
     expect(asked).toHaveLength(8);
   });
 });
+
+describe("Spotify links", () => {
+  it("finds each album's page by that artist, four at a time, with one token", async () => {
+    const { spotifyAlbumLinks } = await import("../../supabase/functions/recordLookup/lookup");
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.includes("accounts.spotify.com")) return json({ access_token: "tok" });
+      const query = new URL(url).searchParams.get("q") ?? "";
+      if (query.includes("Cross")) {
+        return json({ albums: { items: [
+          { external_urls: { spotify: "https://open.spotify.com/album/tribute" }, artists: [{ name: "Tribute Band" }] },
+          { external_urls: { spotify: "https://open.spotify.com/album/cross" }, artists: [{ name: "Justice" }] },
+        ] } });
+      }
+      return json({ albums: { items: [] } });
+    });
+    const links = await spotifyAlbumLinks(fetcher, "id", "secret", [
+      { artist: "Justice", album: "Cross" }, { artist: "Nobody", album: "Nothing" }, { artist: "", album: "x" },
+    ]);
+    expect(links).toEqual({ "Justice|Cross": "https://open.spotify.com/album/cross", "Nobody|Nothing": null });
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes("accounts.spotify.com"))).toHaveLength(1);
+  });
+});

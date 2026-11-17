@@ -10,10 +10,12 @@ import {
   asWantRow, buildSuggestions, type DismissedRow, fetchDismissed, keepForMs, liveSources, readSaved, type SavedSuggestions,
   stillToShow, type Suggestion, type SuggestionSources, writeSaved,
 } from "../lib/suggestions";
+import { listenUrl } from "../lib/spotify";
 import { getSupabase } from "../lib/supabaseClient";
 import type { Actions } from "../lib/useActions";
 import { priceText } from "../lib/wants";
 import { CoverArt } from "./coverArt";
+import { ExternalIcon } from "./icons";
 
 interface SuggestionsSectionProps {
   data: CollectionData;
@@ -120,6 +122,9 @@ export function SuggestionsSection({ data, actions, sources, loadDismissed }: Su
                   Not for me
                 </button>
               </div>
+              <a className="linkish listenLink" href={listenUrl(item.artist, item.album, item.spotifyUrl)} target="_blank" rel="noreferrer">
+                Listen on Spotify <ExternalIcon />
+              </a>
             </div>
           </li>
         ))}

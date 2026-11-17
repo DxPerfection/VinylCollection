@@ -24,6 +24,7 @@ const sources = (): SuggestionSources => ({
   search: vi.fn(async () => [{ discogsId: 777, artist: "Justice", album: "Cross", year: "2007", genre: "Electronic", coverUrl: "",
     label: "", catalogNumber: "", format: "Vinyl", country: "" }]),
   prices: vi.fn(async () => ({ "777": justice.price })),
+  spotify: vi.fn(async () => ({ "Justice|Cross": "https://open.spotify.com/album/cross" })),
 });
 
 const actions = () => ({ addWant: vi.fn(async () => true), dismissSuggestion: vi.fn(async () => true) });
@@ -39,6 +40,7 @@ describe("SuggestionsSection", () => {
     expect(screen.getByText("Cross")).toBeTruthy();
     expect(screen.getByText(/^Like Daft Punk/)).toBeTruthy();
     expect(screen.getByText("From 24.50 EUR · 12 for sale")).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Listen on Spotify/ }).getAttribute("href")).toBe("https://open.spotify.com/album/cross");
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Want it" })); });
     expect(acts.addWant).toHaveBeenCalledWith(expect.objectContaining({ Artist: "Justice", AlbumName: "Cross", DiscogsID: 777 }));
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Not for me" })); });

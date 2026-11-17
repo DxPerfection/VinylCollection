@@ -57,7 +57,8 @@ this one covers everything. It reads the same Supabase tables, behind the same G
   album (hits collections and live albums passed over) is found on Discogs as a vinyl release with its lowest price.
   Each card says why ("Like Daft Punk (14 plays) and Air (rated 5★)"), Want it adds it to the want list, Not for me
   hides that artist for good (`DismissedSuggestions`, migration 009, with Undo). Worked out once a day or on Refresh
-  and kept on the phone in between (`src/lib/suggestions.ts`).
+  and kept on the phone in between (`src/lib/suggestions.ts`). Each suggestion, and each record on the want list, has Listen
+  on Spotify: the album's Spotify page when found (kept on the phone), else a Spotify search for it.
 - The bottom tab bar
 - Installing to the home screen (app manifest, icons and a service worker)
 
