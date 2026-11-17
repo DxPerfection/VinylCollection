@@ -21,11 +21,11 @@ describe("CollectionScreen", () => {
 
   it("filters by search and by genre chip", () => {
     show();
-    fireEvent.change(screen.getByLabelText("Search artist or album"), { target: { value: "daft" } });
+    fireEvent.change(screen.getByLabelText("Search artist, album or note"), { target: { value: "daft" } });
     expect(tileAlbums()).toEqual(["Discovery"]);
     expect(screen.getByText("Showing 1 of 4")).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText("Search artist or album"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Search artist, album or note"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Metal" }));
     expect(tileAlbums()).toEqual(["Hybrid Theory", "Rust In Peace"]);
   });
@@ -49,7 +49,7 @@ describe("CollectionScreen", () => {
 
   it("says so when nothing matches", () => {
     show();
-    fireEvent.change(screen.getByLabelText("Search artist or album"), { target: { value: "zzz" } });
+    fireEvent.change(screen.getByLabelText("Search artist, album or note"), { target: { value: "zzz" } });
     expect(screen.getByText("No records match your search.")).toBeTruthy();
   });
 

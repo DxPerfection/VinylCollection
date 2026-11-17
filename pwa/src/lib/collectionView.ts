@@ -88,7 +88,7 @@ export function filterAndSort(records: RecordView[], filter: CollectionFilter): 
     if (filter.genre && String(record.Genre ?? "").trim() !== filter.genre) return false;
     if (filter.unmatchedOnly && record.DiscogsID) return false;
     if (!query) return true;
-    return nameKey(record.AlbumName).includes(query) || nameKey(record.Artist).includes(query);
+    return nameKey(record.AlbumName).includes(query) || nameKey(record.Artist).includes(query) || nameKey(record.Note).includes(query);
   });
   const [keyOf, direction] = sortKeys[filter.sort];
   return shown

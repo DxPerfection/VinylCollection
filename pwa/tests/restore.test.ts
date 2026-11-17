@@ -33,12 +33,13 @@ describe("planRecordRestore", () => {
     const { rows } = parseCsv(toCsv([
       ...sampleRecords.slice(0, 2),
       sampleRecord(5, { Artist: "Radiohead", AlbumName: "the bends " }), // same album under another ID
-      sampleRecord(6, { AlbumName: "New One", Rating: 4, DiscogsID: 99, Label: "Harvest", PressingYear: "1977", DurationMins: 41 }),
+      sampleRecord(6, { AlbumName: "New One", Rating: 4, DiscogsID: 99, Label: "Harvest", PressingYear: "1977", Note: "First pressing",
+        DurationMins: 41 }),
     ], recordColumns));
     rows.push({ ID: "abc", Artist: "X", AlbumName: "Y" });
     const plan = planRecordRestore(rows, sampleRecords);
     expect(plan.toAdd).toHaveLength(1);
-    expect(plan.toAdd[0]).toMatchObject({ ID: 6, AlbumName: "New One", Rating: 4, DiscogsID: 99, Label: "Harvest", PressingYear: "1977",
+    expect(plan.toAdd[0]).toMatchObject({ ID: 6, AlbumName: "New One", Rating: 4, DiscogsID: 99, Label: "Harvest", PressingYear: "1977", Note: "First pressing",
       DurationMins: 41 });
     expect([plan.have, plan.sameAlbum, plan.unusable]).toEqual([2, 1, 1]);
     expect(planSummary(plan)).toBe("5 records in the file: 1 to restore, 2 already in the app, 1 with the same artist and album under another ID, 1 without what a row needs");

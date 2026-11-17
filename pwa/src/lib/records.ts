@@ -23,6 +23,8 @@ export interface VinylRecord {
   SideMins?: string | null;
   // The year this pressing came out, from its Discogs release (migration 007); Year stays the album's own year
   PressingYear?: string | null;
+  // Your own note on the record (migration 008)
+  Note?: string | null;
 }
 
 // One row of the Wantlist table

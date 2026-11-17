@@ -19,6 +19,8 @@ this one covers everything. It reads the same Supabase tables, behind the same G
   moves on, closing the sheet stops)
 - A Pressing block on the record card: label, catalogue number, format, country and the pressing's own year
   (`PressingYear`, migration 007; `Year` stays the album's year)
+- A note box on the record card (`Note`, migration 008): Save and Cancel appear once you change it; the Collection
+  search also finds words in notes, and notes are in CSV backups and restore
 - Sides A to D on the record card when a record's side lengths are saved
 - What should I play (Play tab): one record picked with the Streamlit app's rules (long-unplayed and higher-rated
   records come up more, nothing played in the last 3 days, not the same artist twice), filters for time, genre,

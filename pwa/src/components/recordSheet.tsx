@@ -16,9 +16,11 @@ interface RecordSheetProps {
   onEdit: () => void;
   // Tapping the star it already has takes the rating off
   onRate: (record: RecordView, rating: number | null) => void;
+  // Resolves true once the note is saved
+  onSaveNote: (note: string) => Promise<boolean>;
 }
 
-export function RecordSheet({ record, onClose, onLog, onMatch, onEdit, onRate }: RecordSheetProps) {
+export function RecordSheet({ record, onClose, onLog, onMatch, onEdit, onRate, onSaveNote }: RecordSheetProps) {
   const [part, setPart] = useState<PlayPart>("Full album");
   const [earlier, setEarlier] = useState(false);
   const [earlierValue, setEarlierValue] = useState(() => toLocalInputValue(new Date(Date.now() - 60 * 60 * 1000)));
@@ -106,6 +108,8 @@ export function RecordSheet({ record, onClose, onLog, onMatch, onEdit, onRate }:
           country and year of your copy.</p>
       )}
 
+      <NoteBox key={record.ID} note={record.Note ?? ""} onSave={onSaveNote} />
+
       {tracks.length > 0 && (
         <details className="trackList">
           <summary>Tracklist ({tracks.length})</summary>
@@ -135,6 +139,38 @@ function StarPicker({ rating, onPick }: { rating: number; onPick: (rating: numbe
         </button>
       ))}
       {!rating && <span className="muted tiny">Tap to rate</span>}
+    </div>
+  );
+}
+
+// A short note of your own: Save and Cancel show up once you change it
+function NoteBox({ note, onSave }: { note: string; onSave: (note: string) => Promise<boolean> }) {
+  const [text, setText] = useState(note);
+  const [saving, setSaving] = useState(false);
+  const changed = text.trim() !== note.trim();
+
+  const save = async () => {
+    setSaving(true);
+    const saved = await onSave(text.trim());
+    setSaving(false);
+    if (saved) setText(text.trim());
+  };
+
+  return (
+    <div className="noteBox">
+      <label className="field">
+        <span className="fieldLabel">Note</span>
+        <textarea rows={2} maxLength={1000} value={text} placeholder="Where you bought it, how it sounds…"
+          onChange={(event) => setText(event.target.value)} />
+      </label>
+      {changed && (
+        <div className="noteActions">
+          <button type="button" className="smallButton" disabled={saving} onClick={() => setText(note)}>Cancel</button>
+          <button type="button" className="smallButton smallPrimary" disabled={saving} onClick={save}>
+            {saving ? "Saving…" : "Save note"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

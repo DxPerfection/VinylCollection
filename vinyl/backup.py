@@ -27,8 +27,8 @@ def readBackupCsv(uploadedFile, requiredColumns, noun):
 
 
 recordTextColumns = ["Artist", "AlbumName", "Genre", "SubGenre", "Year", "CoverURL", "Condition", "Tracklist"]
-# Record info from Discogs (migrations 006 and 007), restored when both the file and the app have the column
-recordInfoColumns = ["Label", "CatalogNumber", "Format", "Country", "SideMins", "PressingYear"]
+# Record info from Discogs (migrations 006 and 007) and the note (008), restored when both the file and the app have the column
+recordInfoColumns = ["Label", "CatalogNumber", "Format", "Country", "SideMins", "PressingYear", "Note"]
 
 
 def planRecordRestore(fileDf, currentDf):
