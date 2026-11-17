@@ -59,6 +59,17 @@ describe("SuggestionsSection", () => {
     expect(screen.queryByText("Wolfgang Amadeus Phoenix")).toBeNull();
   });
 
+  it("looks up Spotify pages for saved suggestions that don't have one yet", async () => {
+    const { spotifyUrl: _none, ...older } = { ...justice, spotifyUrl: undefined };
+    writeSaved([older]);
+    const from = sources();
+    await act(async () => {
+      render(<SuggestionsSection data={data} actions={actions()} sources={from} loadDismissed={async () => []} />);
+    });
+    expect(from.spotify).toHaveBeenCalledWith([{ artist: "Justice", album: "Cross" }]);
+    expect(screen.getByRole("link", { name: /Listen on Spotify/ }).getAttribute("href")).toBe("https://open.spotify.com/album/cross");
+  });
+
   it("says when it couldn't get suggestions", async () => {
     const from = { ...sources(), similar: vi.fn(async () => { throw new Error("Last.fm is slow to answer right now."); }) };
     await act(async () => {

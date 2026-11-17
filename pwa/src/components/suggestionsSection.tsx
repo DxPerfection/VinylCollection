@@ -10,7 +10,7 @@ import {
   asWantRow, buildSuggestions, type DismissedRow, fetchDismissed, keepForMs, liveSources, readSaved, type SavedSuggestions,
   stillToShow, type Suggestion, type SuggestionSources, writeSaved,
 } from "../lib/suggestions";
-import { listenUrl } from "../lib/spotify";
+import { fetchSpotifyLinks, linkKey, listenUrl } from "../lib/spotify";
 import { getSupabase } from "../lib/supabaseClient";
 import type { Actions } from "../lib/useActions";
 import { priceText } from "../lib/wants";
@@ -71,6 +71,26 @@ export function SuggestionsSection({ data, actions, sources, loadDismissed }: Su
   }, [dismissed, refresh, saved]);
 
   const items = useMemo(() => stillToShow(saved?.items ?? [], data, dismissedNames), [saved, data, dismissedNames]);
+
+  // Suggestions saved before their Spotify page was looked up (or when Spotify was slow) get it now
+  const missingLinks = items.filter((item) => item.spotifyUrl === undefined).map((item) => linkKey(item)).join("\n");
+  useEffect(() => {
+    if (!missingLinks || !saved || build.status === "building" || !navigator.onLine) return;
+    let current = true;
+    const asks = missingLinks.split("\n").map((key) => {
+      const at = key.indexOf("|");
+      return { artist: key.slice(0, at), album: key.slice(at + 1) };
+    });
+    (sources?.spotify ?? ((albums) => fetchSpotifyLinks(getSupabase(), albums)))(asks)
+      .then((links) => {
+        if (!current) return;
+        const items = saved.items.map((item) => linkKey(item) in links ? { ...item, spotifyUrl: links[linkKey(item)] } : item);
+        writeSaved(items, saved.builtAt);
+        setSaved({ builtAt: saved.builtAt, items });
+      })
+      .catch(() => { /* the Spotify search link still works */ });
+    return () => { current = false; };
+  }, [missingLinks, saved, build.status, sources]);
   const shown = showAll ? items : items.slice(0, firstShown);
   const known = useMemo(() => knownGenres(data.records), [data.records]);
 
