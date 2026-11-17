@@ -1,5 +1,5 @@
 // The app: sign-in first, then your records with the tab bar along the bottom
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { AccountSheet } from "./components/accountSheet";
 import { TabBar, type TabId } from "./components/tabBar";
@@ -9,6 +9,7 @@ import { githubLogin, isOwner } from "./lib/owner";
 import { isConfigured } from "./lib/supabaseClient";
 import { useActions } from "./lib/useActions";
 import { useCollection } from "./lib/useCollection";
+import { useLastFm } from "./lib/useLastFm";
 import { signInWithGithub, signOut, useSession } from "./lib/useSession";
 import { AddScreen } from "./screens/addScreen";
 import { CollectionScreen } from "./screens/collectionScreen";
@@ -51,7 +52,11 @@ function Shell({ login }: { login: string }) {
     setToast({ id: Date.now() + Math.random(), text, ...extra });
   }, []);
 
-  const actions = useActions(updateData, showToast);
+  const lastFm = useLastFm(showToast);
+  const { link: lastFmLink, queueForPlay, dropForPlay, restore } = lastFm;
+  const scrobbleHooks = useMemo(() => ({ link: lastFmLink, queueForPlay, dropForPlay, restore }),
+    [lastFmLink, queueForPlay, dropForPlay, restore]);
+  const actions = useActions(updateData, showToast, scrobbleHooks);
 
   const pickTab = (next: TabId) => {
     setTab(next);
@@ -90,7 +95,8 @@ function Shell({ login }: { login: string }) {
       {toast && <Toast toast={toast} onDone={() => setToast(null)} />}
       <TabBar current={tab} onPick={pickTab} />
       {accountOpen && (
-        <AccountSheet login={login} data={state.status === "ready" ? state.data : null} onReload={reload} onSignOut={signOut} onClose={() => setAccountOpen(false)} />
+        <AccountSheet login={login} data={state.status === "ready" ? state.data : null} lastFm={lastFm} onReload={reload} onSignOut={signOut}
+          onClose={() => setAccountOpen(false)} />
       )}
     </div>
   );

@@ -41,6 +41,15 @@ this one covers everything. It reads the same Supabase tables, behind the same G
 - Offline: the last records, plays and want list are kept on the phone (`src/lib/offline.ts`), covers and fonts by
   the service worker, so the app opens without a signal. Plays logged offline wait on the phone and are sent when it
   can reach Supabase again (never twice). A bar above the tab bar says when it is showing the kept copy.
+- Last.fm scrobbling (Account > Connect Last.fm, once): every play you log is scrobbled track by track from the
+  record's tracklist. The logged time is when the record went on; tracks follow each other over the play's minutes
+  (a side gets its share of the tracks: the saved Discogs side lengths, else half). A track goes out once it has
+  played (Last.fm refuses times in the future), whenever the app is open, so a record logged then closed fills in
+  on Last.fm the next time the app opens. Nothing goes out while the Undo message shows. Waiting tracks stay on the
+  phone (`src/lib/lastFm.ts`) through lost signal or a slow Last.fm (8 second limit, tried again a minute later);
+  plays older than two weeks can't go to Last.fm. Deleting a play takes its waiting tracks off; tracks already
+  scrobbled can't be removed by an app, so the message links to that day in the Last.fm library. Account shows
+  what is waiting. The key and secret live in the `lastFm` Supabase function.
 - The bottom tab bar
 - Installing to the home screen (app manifest, icons and a service worker)
 
