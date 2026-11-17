@@ -58,7 +58,7 @@ export function CollectionScreen({ data, onOpenAccount, onOpenAdd, actions }: Co
             <div className="searchRow">
               <label className="searchBox">
                 <SearchIcon />
-                <input type="search" placeholder="Artist or album" aria-label="Search artist or album"
+                <input type="search" placeholder="Artist, album or note" aria-label="Search artist, album or note"
                   value={filter.search} onChange={(event) => setFilter({ ...filter, search: event.target.value })} />
               </label>
               <label className="sortButton">

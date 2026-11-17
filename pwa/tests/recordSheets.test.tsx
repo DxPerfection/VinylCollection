@@ -92,3 +92,40 @@ describe("matching one record after another", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
+
+describe("notes on records", () => {
+  it("saves a note from the record card, and Cancel puts back what was there", async () => {
+    const editRecord = vi.fn(async () => true);
+    const records = [{ ...sampleRecords[0], Note: "Bought in Kadıköy" }, ...sampleRecords.slice(1)];
+    render(<CollectionScreen data={{ records, plays: [], wants: [] }} onOpenAccount={() => {}} onOpenAdd={() => {}}
+      actions={fakeActions({ editRecord })} />);
+    fireEvent.click(screen.getByText("The Bends"));
+    const box = screen.getByLabelText("Note") as HTMLTextAreaElement;
+    expect(box.value).toBe("Bought in Kadıköy");
+    expect(screen.queryByRole("button", { name: "Save note" })).toBeNull();
+    fireEvent.change(box, { target: { value: "Something else" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(box.value).toBe("Bought in Kadıköy");
+    fireEvent.change(box, { target: { value: "  Bought in Kadıköy, plays a bit noisy on side B  " } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save note" })); });
+    expect(editRecord).toHaveBeenCalledWith(expect.objectContaining({ AlbumName: "The Bends" }),
+      { Note: "Bought in Kadıköy, plays a bit noisy on side B" }, records);
+  });
+
+  it("saves an emptied note as no note", async () => {
+    const editRecord = vi.fn(async () => true);
+    render(<CollectionScreen data={{ records: [{ ...sampleRecords[0], Note: "Old" }], plays: [], wants: [] }} onOpenAccount={() => {}}
+      onOpenAdd={() => {}} actions={fakeActions({ editRecord })} />);
+    fireEvent.click(screen.getByText("The Bends"));
+    fireEvent.change(screen.getByLabelText("Note"), { target: { value: " " } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save note" })); });
+    expect((editRecord.mock.calls[0] as unknown[])[1]).toEqual({ Note: null });
+  });
+
+  it("finds records by words in their note", () => {
+    const records = [{ ...sampleRecords[0], Note: "From the Kadıköy flea market" }, ...sampleRecords.slice(1)];
+    render(<CollectionScreen data={{ records, plays: [], wants: [] }} onOpenAccount={() => {}} onOpenAdd={() => {}} actions={fakeActions()} />);
+    fireEvent.change(screen.getByLabelText("Search artist, album or note"), { target: { value: "flea" } });
+    expect(Array.from(document.querySelectorAll(".tileAlbum")).map((tile) => tile.textContent)).toEqual(["The Bends"]);
+  });
+});

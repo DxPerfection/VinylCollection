@@ -66,6 +66,7 @@ export function RecordSheets({ records, rows, openId, onClose, actions, matchOrd
   }
   return (
     <RecordSheet record={record} onClose={close} onLog={actions.logPlay} onRate={actions.rateRecord}
-      onMatch={() => setMode("match")} onEdit={() => setMode("edit")} />
+      onMatch={() => setMode("match")} onEdit={() => setMode("edit")}
+      onSaveNote={(note) => actions.editRecord(record, { Note: note || null }, rows)} />
   );
 }
