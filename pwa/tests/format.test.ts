@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { formatLastPlayed, minutesText, parseStoredTime, playCountText, ratingOf, stars, trackList, yearText } from "../src/lib/format";
+import { formatLastPlayed, minutesText, parseStoredTime, playCountText, pressingDetails, ratingOf, stars, trackList, yearText }
+  from "../src/lib/format";
 
 describe("parseStoredTime", () => {
   it("reads older naive times as UTC", () => {
@@ -46,5 +47,13 @@ describe("small formatters", () => {
     expect(playCountText(0)).toBe("Not played yet");
     expect(playCountText(1)).toBe("Played once");
     expect(playCountText(5)).toBe("Played 5 times");
+  });
+});
+
+describe("pressingDetails", () => {
+  it("lists the pressing in sleeve order and leaves out what is empty", () => {
+    expect(pressingDetails({ Label: "Harvest", CatalogNumber: "SHVL 815", Format: "Vinyl, LP, Album", Country: " ", PressingYear: "1977" }))
+      .toEqual([["Label", "Harvest"], ["Cat. no.", "SHVL 815"], ["Format", "Vinyl, LP, Album"], ["Year", "1977"]]);
+    expect(pressingDetails({})).toEqual([]);
   });
 });

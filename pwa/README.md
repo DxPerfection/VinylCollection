@@ -15,7 +15,10 @@ this one covers everything. It reads the same Supabase tables, behind the same G
   format, country, side lengths); Spotify gives the cover and length. The keys live in the `recordLookup` Supabase
   function (see `../supabase/README.md`), never in this app.
 - Match on Discogs: saves the record info for records added before, picked by you; a "No Discogs info yet" chip
-  lists them
+  lists them. After matching a record that had no Discogs info, the next one without it opens straight away (Skip
+  moves on, closing the sheet stops)
+- A Pressing block on the record card: label, catalogue number, format, country and the pressing's own year
+  (`PressingYear`, migration 007; `Year` stays the album's year)
 - Sides A to D on the record card when a record's side lengths are saved
 - What should I play (Play tab): one record picked with the Streamlit app's rules (long-unplayed and higher-rated
   records come up more, nothing played in the last 3 days, not the same artist twice), filters for time, genre,

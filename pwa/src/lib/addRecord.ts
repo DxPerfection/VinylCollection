@@ -71,7 +71,7 @@ export function editsFrom(release: ReleaseDetails, known: string[]): RecordEdits
 }
 
 // The record info a Discogs release adds to a record, whether new or matched later
-export function recordInfo(release: ReleaseDetails): Pick<VinylRecord, "DiscogsID" | "Label" | "CatalogNumber" | "Format" | "Country" | "SideMins"> {
+export function recordInfo(release: ReleaseDetails): Pick<VinylRecord, "DiscogsID" | "Label" | "CatalogNumber" | "Format" | "Country" | "SideMins" | "PressingYear"> {
   return {
     DiscogsID: release.discogsId || null,
     Label: release.label || null,
@@ -79,6 +79,7 @@ export function recordInfo(release: ReleaseDetails): Pick<VinylRecord, "DiscogsI
     Format: release.format || null,
     Country: release.country || null,
     SideMins: release.sideMins || null,
+    PressingYear: release.year || null,
   };
 }
 

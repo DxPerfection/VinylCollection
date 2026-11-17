@@ -163,6 +163,7 @@ export function useActions(updateData: UpdateData, showToast: ShowToast): Action
     const before = {
       DiscogsID: record.DiscogsID ?? null, Label: record.Label ?? null, CatalogNumber: record.CatalogNumber ?? null,
       Format: record.Format ?? null, Country: record.Country ?? null, SideMins: record.SideMins ?? null,
+      PressingYear: record.PressingYear ?? null,
     };
     try {
       const saved = await updateRecord(getSupabase(), Number(record.ID), recordInfo(release));

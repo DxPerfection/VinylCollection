@@ -28,6 +28,7 @@ export function CollectionScreen({ data, onOpenAccount, onOpenAdd, actions }: Co
   const genres = useMemo(() => genresInUse(data.records), [data]);
   const shown = useMemo(() => filterAndSort(records, filter), [records, filter]);
   const unmatchedCount = records.filter((record) => !record.DiscogsID).length;
+  const matchOrder = useMemo(() => shown.map((record) => Number(record.ID)), [shown]);
 
   const total = records.length;
   const countText = shown.length === total
@@ -96,7 +97,8 @@ export function CollectionScreen({ data, onOpenAccount, onOpenAdd, actions }: Co
         </div>
       </div>
 
-      <RecordSheets records={records} rows={data.records} openId={openId} onClose={() => setOpenId(null)} actions={actions} />
+      <RecordSheets records={records} rows={data.records} openId={openId} onClose={() => setOpenId(null)} actions={actions}
+        matchOrder={matchOrder} />
     </div>
   );
 }

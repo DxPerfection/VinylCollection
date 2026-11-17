@@ -45,12 +45,13 @@ describe("new rows", () => {
       Artist: "Daft Punk", AlbumName: "Homework", Genre: "Electronic", SubGenre: "House, Techno", Year: "1997",
       CoverURL: "https://spotify/cover.jpg", Condition: "Used", DurationMins: 74, Tracklist: "Daftendirekt | Revolution 909",
       DiscogsID: 555, Label: "Virgin", CatalogNumber: "V 2821", Format: "Vinyl, LP, Album", Country: "UK",
-      SideMins: "A:19|B:18|C:19|D:18",
+      SideMins: "A:19|B:18|C:19|D:18", PressingYear: "1997",
     });
   });
 
   it("leaves empty record info as empty", () => {
     expect(recordInfo({ ...release, label: "", sideMins: "" })).toMatchObject({ Label: null, SideMins: null, DiscogsID: 555 });
+    expect(recordInfo({ ...release, year: "" }).PressingYear).toBeNull();
   });
 
   it("builds a want from a search result", () => {
