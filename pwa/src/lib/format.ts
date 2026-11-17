@@ -59,3 +59,12 @@ export function playCountText(count: number): string {
   if (count === 0) return "Not played yet";
   return count === 1 ? "Played once" : `Played ${count} times`;
 }
+
+// The pressing details on a record card, in the order you'd read them off the sleeve; empty ones are left out
+export function pressingDetails(record: {
+  Label?: string | null; CatalogNumber?: string | null; Format?: string | null; Country?: string | null; PressingYear?: string | null;
+}): [string, string][] {
+  const rows: [string, unknown][] = [["Label", record.Label], ["Cat. no.", record.CatalogNumber], ["Format", record.Format],
+    ["Country", record.Country], ["Year", yearText(record.PressingYear)]];
+  return rows.map(([term, value]): [string, string] => [term, String(value ?? "").trim()]).filter(([, value]) => value !== "");
+}

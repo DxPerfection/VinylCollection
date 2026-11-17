@@ -2,7 +2,7 @@
 import { useState } from "react";
 
 import type { RecordView } from "../lib/collectionView";
-import { formatLastPlayed, minutesText, playCountText, trackList, yearText } from "../lib/format";
+import { formatLastPlayed, minutesText, playCountText, pressingDetails, trackList, yearText } from "../lib/format";
 import { fromLocalInputValue, minutesFor, partsFor, type PlayPart, toLocalInputValue } from "../lib/plays";
 import { BottomSheet } from "./bottomSheet";
 import { CoverArt } from "./coverArt";
@@ -28,7 +28,7 @@ export function RecordSheet({ record, onClose, onLog, onMatch, onEdit, onRate }:
   const details = [record.Genre, yearText(record.Year), minutesText(record.DurationMins)].filter(Boolean).join(" · ");
   const tracks = trackList(record.Tracklist);
   const extras = [record.SubGenre, record.Condition ? `Condition: ${record.Condition}` : ""].filter(Boolean);
-  const pressing = [record.Label, record.CatalogNumber, record.Format, record.Country].filter(Boolean).join(" · ");
+  const pressing = pressingDetails(record);
 
   const playedAt = earlier ? fromLocalInputValue(earlierValue) : new Date();
   const timeProblem = earlier && (!playedAt ? "Pick a date and time." : playedAt.getTime() > Date.now() ? "That time hasn't happened yet." : "");
@@ -92,7 +92,19 @@ export function RecordSheet({ record, onClose, onLog, onMatch, onEdit, onRate }:
       </button>
 
       {extras.length > 0 && <div className="muted small">{extras.join(" · ")}</div>}
-      {pressing && <div className="muted small">{pressing}</div>}
+      {pressing.length > 0 ? (
+        <section className="pressing" aria-label="Pressing">
+          <h3 className="pressingTitle">Pressing</h3>
+          <dl className="pressingList">
+            {pressing.map(([term, value]) => (
+              <div key={term} className="pressingRow"><dt>{term}</dt><dd>{value}</dd></div>
+            ))}
+          </dl>
+        </section>
+      ) : (
+        <p className="muted small noPressing">No pressing details yet. Match it on Discogs to see the label, catalogue number, format,
+          country and year of your copy.</p>
+      )}
 
       {tracks.length > 0 && (
         <details className="trackList">

@@ -3,7 +3,8 @@
 import type { CollectionData } from "./records";
 
 export const recordColumns = ["ID", "Artist", "AlbumName", "Genre", "SubGenre", "Year", "CoverURL", "Condition", "DurationMins",
-  "Tracklist", "Rating", "DiscogsID", "Label", "CatalogNumber", "Format", "Country", "SideMins"];
+  "Tracklist", "Rating", "DiscogsID", "Label", "CatalogNumber", "Format", "Country", "SideMins",
+  "PressingYear"];
 export const playColumns = ["id", "Date", "AlbumName", "DurationMins", "VinylID"];
 export const wantColumns = ["id", "Artist", "AlbumName", "Year", "Genre", "CoverURL", "DiscogsID", "AddedAt", "Priority", "Note"];
 

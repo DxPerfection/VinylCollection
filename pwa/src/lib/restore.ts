@@ -77,7 +77,7 @@ export interface RestorePlan<T> {
 }
 
 const recordTextColumns = ["Artist", "AlbumName", "Genre", "SubGenre", "Year", "CoverURL", "Condition", "Tracklist"] as const;
-const recordInfoColumns = ["Label", "CatalogNumber", "Format", "Country", "SideMins"] as const;
+const recordInfoColumns = ["Label", "CatalogNumber", "Format", "Country", "SideMins", "PressingYear"] as const;
 
 export function planRecordRestore(rows: CsvRow[], current: VinylRecord[]): RestorePlan<VinylRecord> {
   const known = new Set(current.map((record) => Number(record.ID)));

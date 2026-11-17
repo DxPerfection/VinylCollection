@@ -358,3 +358,13 @@ a { color: var(--accent); }
 .filePick:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .restorePlan { display: flex; flex-direction: column; gap: 6px; background: var(--surface); border-radius: 12px; padding: 10px 12px; }
 .textLink { align-self: flex-start; background: none; border: none; padding: 4px 0; min-height: 32px; color: var(--accent); font-size: 14px; font-weight: 500; text-decoration: underline; text-underline-offset: 3px; }
+
+/* Pressing details on the record card */
+.pressing { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.pressingTitle { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 6px; }
+.pressingList { margin: 0; display: grid; gap: 4px; }
+.pressingRow { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px; font-size: 14px; line-height: 1.4; }
+.pressingRow dt { color: var(--muted); }
+.pressingRow dd { margin: 0; overflow-wrap: anywhere; }
+.noPressing { margin: 0; line-height: 1.45; }
+.matchRun { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
