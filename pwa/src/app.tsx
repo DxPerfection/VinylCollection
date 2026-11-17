@@ -77,7 +77,7 @@ function Shell({ login }: { login: string }) {
   } else if (tab === "wants") {
     body = <WantsScreen data={state.data} actions={actions} onOpenAdd={() => setAdding(true)} />;
   } else {
-    body = <StatsScreen data={state.data} />;
+    body = <StatsScreen data={state.data} actions={actions} />;
   }
 
   return (

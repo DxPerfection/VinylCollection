@@ -2,13 +2,13 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, describe, expect, it } from "vitest";
 
 import { StatsScreen } from "../src/screens/statsScreen";
-import { samplePlays, sampleRecords } from "./sampleData";
+import { fakeActions, samplePlays, sampleRecords } from "./sampleData";
 
 afterEach(cleanup);
 
 describe("StatsScreen", () => {
   it("shows listening and shelf stats, and switches the album ranking", () => {
-    render(<StatsScreen data={{ records: sampleRecords, plays: samplePlays, wants: [] }} />);
+    render(<StatsScreen data={{ records: sampleRecords, plays: samplePlays, wants: [] }} actions={fakeActions()} />);
     expect(screen.getByText("Longest streak")).toBeTruthy();
     const albums = screen.getByRole("region", { name: "Most listened albums" });
     expect(within(albums).getAllByText("Megadeth - Rust In Peace")).toHaveLength(1);
@@ -20,14 +20,14 @@ describe("StatsScreen", () => {
   });
 
   it("reads a column's value when tapped", () => {
-    render(<StatsScreen data={{ records: sampleRecords, plays: samplePlays, wants: [] }} />);
+    render(<StatsScreen data={{ records: sampleRecords, plays: samplePlays, wants: [] }} actions={fakeActions()} />);
     const days = screen.getByRole("region", { name: "When you listen" });
     fireEvent.click(within(days).getByRole("button", { name: /^Sun:/ }));
     expect(days.querySelector(".columnReadout")?.textContent).toBe("Sun: 2 plays");
   });
 
   it("asks for plays when there are none yet", () => {
-    render(<StatsScreen data={{ records: sampleRecords, plays: [], wants: [] }} />);
+    render(<StatsScreen data={{ records: sampleRecords, plays: [], wants: [] }} actions={fakeActions()} />);
     expect(screen.getByText("Log some plays to see your listening stats.")).toBeTruthy();
     expect(screen.getByRole("region", { name: "Decades" })).toBeTruthy();
   });

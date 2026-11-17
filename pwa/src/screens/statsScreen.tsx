@@ -1,6 +1,9 @@
 // Stats: your listening and your shelf, as in the Streamlit Dashboard
 import { useMemo, useState } from "react";
 
+import { type RecordActions, RecordSheets } from "../components/recordSheets";
+import { linkPlays } from "../lib/collectionView";
+import { collectionValue, moneyText, useValuePrices, type ValuePrices } from "../lib/collectionValue";
 import { formatLastPlayed } from "../lib/format";
 import type { CollectionData } from "../lib/records";
 import {
@@ -10,7 +13,7 @@ import {
 
 const dayText = (days: number) => `${days} ${days === 1 ? "day" : "days"}`;
 
-export function StatsScreen({ data }: { data: CollectionData }) {
+export function StatsScreen({ data, actions }: { data: CollectionData; actions: RecordActions }) {
   const facts = useMemo(() => playFacts(data.records, data.plays), [data]);
   const years = useMemo(() => reviewYears(facts), [facts]);
   const [rankBy, setRankBy] = useState<"Plays" | "Minutes">("Plays");
@@ -38,6 +41,8 @@ export function StatsScreen({ data }: { data: CollectionData }) {
         <h1>Stats</h1>
       </header>
       <div className="scrollArea statsArea">
+        <ValueSection data={data} actions={actions} />
+
         {facts.length === 0 ? (
           <p className="emptyNote">Log some plays to see your listening stats.</p>
         ) : (
@@ -205,3 +210,60 @@ function ColumnChart({ bars, unit, labelEvery = 1, compactLabels = false }:
     </div>
   );
 }
+
+// The collection's value from Discogs prices, how many records it leaves out and why, and a way to match the rest
+function ValueSection({ data, actions }: { data: CollectionData; actions: RecordActions }) {
+  const prices = useValuePrices(data.records);
+  const value = collectionValue(data.records, prices.prices);
+  const records = useMemo(() => linkPlays(data.records, data.plays), [data]);
+  const [matching, setMatching] = useState<{ id: number; key: number } | null>(null);
+  const firstUnmatched = data.records.find((record) => !record.DiscogsID);
+  const total = data.records.length;
+
+  const notCounted = [
+    value.unmatched ? `${value.unmatched} not matched on Discogs yet` : "",
+    value.noPrice ? `${value.noPrice} with none for sale on Discogs` : "",
+    value.waiting ? waitingText(value.waiting, prices.status) : "",
+  ].filter(Boolean);
+
+  return (
+    <section className="statSection valueSection" aria-label="Collection value">
+      <h2>Collection value</h2>
+      <div className="valueCard">
+        <span className="statValue valueTotal">{value.counted ? moneyText(value.total, value.currency) : "Not known yet"}</span>
+        <span className="small">{value.counted} of {total} {total === 1 ? "record" : "records"} counted</span>
+        {notCounted.length > 0 && (
+          <ul className="valueGaps muted small">
+            {notCounted.map((line) => <li key={line}>{line}</li>)}
+          </ul>
+        )}
+        <span className="muted tiny">The cheapest copy for sale on Discogs for each record, so a rough floor rather than what yours would sell for.</span>
+        {firstUnmatched && (
+          <button type="button" className="secondaryButton"
+            onClick={() => setMatching({ id: Number(firstUnmatched.ID), key: (matching?.key ?? 0) + 1 })}>
+            Match records on Discogs
+          </button>
+        )}
+      </div>
+      {value.top.length > 0 && (
+        <ol className="valueTop">
+          {value.top.map(({ record, price }) => (
+            <li key={record.ID}>
+              <span className="valueName">{record.AlbumName} <span className="muted">· {record.Artist}</span></span>
+              <span>{moneyText(price, value.currency)}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+      <RecordSheets key={matching?.key ?? 0} records={records} rows={data.records} openId={matching?.id ?? null} startMode="match"
+        onClose={() => setMatching(null)} actions={actions} />
+    </section>
+  );
+}
+
+function waitingText(waiting: number, status: ValuePrices["status"]): string {
+  if (status === "checking" || status === "idle") return `Checking prices for ${waiting} more…`;
+  if (status === "failed") return `${waiting} not checked: couldn't reach Discogs, try again later`;
+  return `${waiting} not checked yet: Discogs was slow, they're checked next time`;
+}
+

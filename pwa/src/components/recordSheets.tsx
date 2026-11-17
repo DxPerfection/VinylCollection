@@ -20,6 +20,8 @@ interface RecordSheetsProps {
   actions: RecordActions;
   // The record IDs in the order the screen shows them, so matching carries on in that order
   matchOrder?: number[];
+  // Open straight on Match on Discogs instead of the record card
+  startMode?: "card" | "match";
 }
 
 // The next record without Discogs info after the one just done, in screen order, wrapping round to the start
@@ -32,8 +34,8 @@ export function nextUnmatched(records: VinylRecord[], order: number[], doneId: n
   return ids.find((id) => order.indexOf(id) > at) ?? ids[0];
 }
 
-export function RecordSheets({ records, rows, openId, onClose, actions, matchOrder }: RecordSheetsProps) {
-  const [mode, setMode] = useState<"card" | "edit" | "match">("card");
+export function RecordSheets({ records, rows, openId, onClose, actions, matchOrder, startMode = "card" }: RecordSheetsProps) {
+  const [mode, setMode] = useState<"card" | "edit" | "match">(startMode);
   const [runId, setRunId] = useState<number | null>(null); // the record a run of matches has moved on to
   const [skipped, setSkipped] = useState<number[]>([]);
   const [matchedCount, setMatchedCount] = useState(0);
@@ -41,7 +43,7 @@ export function RecordSheets({ records, rows, openId, onClose, actions, matchOrd
   const record = currentId === null ? undefined : records.find((item) => Number(item.ID) === currentId);
   if (!record) return null;
 
-  const close = () => { setMode("card"); setRunId(null); setSkipped([]); setMatchedCount(0); onClose(); };
+  const close = () => { setMode(startMode); setRunId(null); setSkipped([]); setMatchedCount(0); onClose(); };
   if (mode === "edit") {
     return <EditSheet record={record} records={rows} onSave={actions.editRecord} onDelete={actions.removeRecord} onClose={close} />;
   }
