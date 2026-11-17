@@ -1,23 +1,28 @@
-// Who is signed in, backups to download, reloading, a link to the current app, and signing out
+// Who is signed in, Last.fm, backups to download, reloading, a link to the current app, and signing out
 import { backupFiles, downloadText } from "../lib/backup";
 import { oldAppLink } from "../lib/config";
 import type { CollectionData } from "../lib/records";
+import type { LastFmHandle } from "../lib/useLastFm";
 import { BottomSheet } from "./bottomSheet";
+import { LastFmSection } from "./lastFmSection";
 import { RestoreSection } from "./restoreSection";
 import { ExternalIcon } from "./icons";
 
 interface AccountSheetProps {
   login: string;
   data: CollectionData | null;
+  lastFm?: LastFmHandle;
   onReload: () => void;
   onSignOut: () => void;
   onClose: () => void;
 }
 
-export function AccountSheet({ login, data, onReload, onSignOut, onClose }: AccountSheetProps) {
+export function AccountSheet({ login, data, lastFm, onReload, onSignOut, onClose }: AccountSheetProps) {
   return (
     <BottomSheet label="Account" onClose={onClose}>
       <h2 className="sheetAlbum">Signed in{login ? ` as ${login}` : ""}</h2>
+
+      {lastFm && <LastFmSection {...lastFm} />}
 
       {data && (
         <section className="fieldGroup" aria-label="Backups">

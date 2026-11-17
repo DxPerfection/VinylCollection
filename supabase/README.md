@@ -11,7 +11,14 @@ Server-side helpers for the phone app in `pwa/`. They hold keys that must not be
   It also gives the lowest Discogs marketplace price and copies for sale for the want list; prices not checked
   within 15 seconds are left out and asked for again next time.
 
-It needs three function secrets, set in Supabase under Edge Functions > Secrets: `DISCOGS_TOKEN`,
+- `functions/lastFm/`: Last.fm for the phone app: the link to Last.fm's "allow this app" page, swapping the token
+  Last.fm sends back for a session key, and sending scrobbles (at most 50 tracks a call). The API key and shared
+  secret stay here; the phone keeps only the session key, which can't sign anything without the secret. Same owner
+  check as `recordLookup`. Each Last.fm call gives up after 8 seconds. Needs the function secrets `LASTFM_API_KEY`
+  and `LASTFM_SHARED_SECRET` (from https://www.last.fm/api/account/create). Deploy with JWT verification on, like
+  `recordLookup`.
+
+`recordLookup` needs three function secrets, set in Supabase under Edge Functions > Secrets: `DISCOGS_TOKEN`,
 `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` (the same values as the Streamlit app's `discogs_token`,
 `spotify_client_id` and `spotify_client_secret`). Never commit them: this repository is public. `DISCOGS_CURRENCY`
 is optional (prices are in EUR without it; use the Streamlit app's `discogs_currency` if it has one).

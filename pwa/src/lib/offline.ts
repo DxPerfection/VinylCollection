@@ -68,7 +68,8 @@ export function clearCache() {
   }
 }
 
-const playKey = (play: Omit<PlayRow, "id">) =>
+// What makes a play the same play before and after it is saved: its time, album, minutes and record
+export const playKey = (play: Omit<PlayRow, "id">) =>
   `${String(play.Date ?? "").trim()}|${String(play.AlbumName ?? "").trim()}|${Number(play.DurationMins ?? 0)}|${play.VinylID ?? ""}`;
 
 // The pending plays Supabase doesn't have yet. One that already arrived (say the answer to the send got lost)

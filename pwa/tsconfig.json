@@ -14,5 +14,5 @@
     "noEmit": true,
     "types": ["vite/client", "vite-plugin-pwa/client"]
   },
-  "include": ["src", "tests", "vite.config.ts", "../supabase/functions/recordLookup/lookup.ts"]
+  "include": ["src", "tests", "vite.config.ts", "../supabase/functions/recordLookup/lookup.ts", "../supabase/functions/lastFm/lastFmApi.ts"]
 }

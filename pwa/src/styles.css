@@ -354,6 +354,11 @@ a { color: var(--accent); }
   font-weight: 600;
 }
 .waitingTag { color: var(--accent); }
+.lastFmTag { color: var(--muted); }
+.errorText { color: var(--error); }
+.toastLink { display: inline-flex; align-items: center; text-decoration: none; }
+.lastFmStatus { display: flex; flex-direction: column; gap: 4px; }
+.lastFmButtons { display: flex; flex-wrap: wrap; gap: 8px; }
 .filePick { align-self: flex-start; display: inline-flex; align-items: center; cursor: pointer; }
 .filePick:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .restorePlan { display: flex; flex-direction: column; gap: 6px; background: var(--surface); border-radius: 12px; padding: 10px 12px; }

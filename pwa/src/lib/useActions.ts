@@ -7,14 +7,26 @@ import { deleteRecord, deleteWant, insertRecord, insertWant, recordInfo, updateR
 import type { RecordView } from "./collectionView";
 import type { ReleaseDetails } from "./lookup";
 import { linkPastPlays, needsPlayLink } from "./manage";
+import { libraryDayUrl } from "./lastFm";
 import { addPending, isConnectionProblem, isPending, removePending } from "./offline";
+import { parseStoredTime } from "./format";
 import { deletePlay, insertPlay, newPlayRow, type PlayPart } from "./plays";
 import type { CollectionData, PlayRow, VinylRecord, WantRow } from "./records";
 import { getSupabase } from "./supabaseClient";
+import type { LastFmHandle, QueueOutcome } from "./useLastFm";
 import { updateWant } from "./wants";
 
 type ShowToast = (text: string, extra?: Omit<ToastMessage, "id" | "text">) => void;
 type UpdateData = (change: (data: CollectionData) => CollectionData) => void;
+type ScrobbleHooks = Pick<LastFmHandle, "link" | "queueForPlay" | "dropForPlay" | "restore">;
+
+// Only said when a play won't reach Last.fm although it is connected
+const lastFmNote: Record<QueueOutcome, string> = {
+  queued: "",
+  off: "",
+  tooOld: " (too old for Last.fm)",
+  noTracks: " (no tracklist, so not on Last.fm)",
+};
 
 export interface Actions {
   logPlay: (record: RecordView, part: PlayPart, playedAt: Date) => Promise<boolean>;
@@ -30,7 +42,7 @@ export interface Actions {
   gotWant: (want: WantRow, row: VinylRecord) => Promise<boolean>;
 }
 
-export function useActions(updateData: UpdateData, showToast: ShowToast): Actions {
+export function useActions(updateData: UpdateData, showToast: ShowToast, lastFm?: ScrobbleHooks): Actions {
   const showError = useCallback((what: string, error: unknown) => {
     const reason = navigator.onLine ? (error instanceof Error ? error.message : String(error)) : "you're offline";
     showToast(`${what}: ${reason}`, { isError: true });
@@ -44,35 +56,41 @@ export function useActions(updateData: UpdateData, showToast: ShowToast): Action
     updateData((data) => ({ ...data, wants: change(data.wants) })), [updateData]);
 
   // Without a signal the play waits on the phone and is sent when the app can reach Supabase again
-  const keepForLater = useCallback((row: Omit<PlayRow, "id">, label: string) => {
+  // Each play's tracks also wait to go to Last.fm, after the Undo message has gone
+  const keepForLater = useCallback((row: Omit<PlayRow, "id">, label: string, record: RecordView, part: PlayPart, playedAt: Date) => {
     const pending = addPending(row);
     updatePlays((plays) => [...plays, pending]);
-    showToast(`Logged ${label}, sends when online`, {
+    const outcome = lastFm?.queueForPlay(pending, record, part, playedAt, label) ?? "off";
+    showToast(`Logged ${label}, sends when online${lastFmNote[outcome]}`, {
       undo: () => {
         removePending(pending.id);
+        lastFm?.dropForPlay(pending);
         updatePlays((plays) => plays.filter((play) => play.id !== pending.id));
         showToast(`Took back ${label}`);
       },
     });
-  }, [showToast, updatePlays]);
+  }, [lastFm, showToast, updatePlays]);
 
   const logPlay = useCallback(async (record: RecordView, part: PlayPart, playedAt: Date) => {
     const row = newPlayRow(record, part, playedAt);
     const label = part === "Full album" ? String(record.AlbumName) : `${record.AlbumName} (${part})`;
     if (!navigator.onLine) {
-      keepForLater(row, label);
+      keepForLater(row, label, record, part, playedAt);
       return true;
     }
     try {
       const saved = await insertPlay(getSupabase(), row);
       updatePlays((plays) => [...plays, saved]);
-      showToast(`Logged ${label}`, {
+      const outcome = lastFm?.queueForPlay(saved, record, part, playedAt, label) ?? "off";
+      showToast(`Logged ${label}${lastFmNote[outcome]}`, {
         undo: async () => {
+          const queued = lastFm?.dropForPlay(saved).queued ?? null;
           try {
             await deletePlay(getSupabase(), saved.id);
             updatePlays((plays) => plays.filter((play) => play.id !== saved.id));
             showToast(`Took back ${label}`);
           } catch (error) {
+            if (queued) lastFm?.restore(queued, saved);
             showError("Couldn't undo", error);
           }
         },
@@ -80,40 +98,48 @@ export function useActions(updateData: UpdateData, showToast: ShowToast): Action
       return true;
     } catch (error) {
       if (isConnectionProblem(error)) {
-        keepForLater(row, label);
+        keepForLater(row, label, record, part, playedAt);
         return true;
       }
       showError("Couldn't save the play", error);
       return false;
     }
-  }, [keepForLater, showError, showToast, updatePlays]);
+  }, [keepForLater, lastFm, showError, showToast, updatePlays]);
 
-  // Undo saves the same play again (it gets a new id)
+  // Undo saves the same play again (it gets a new id). Tracks still waiting for Last.fm are taken off with it;
+  // tracks already scrobbled can't be taken back by an app, so the message links to that day on Last.fm.
   const removePlay = useCallback(async (play: PlayRow) => {
     if (isPending(play)) {
       removePending(play.id);
+      lastFm?.dropForPlay(play);
       updatePlays((plays) => plays.filter((item) => item.id !== play.id));
       showToast(`Removed ${play.AlbumName ?? "the play"} before it was sent`);
       return;
     }
+    const { queued, sent } = lastFm?.dropForPlay(play) ?? { queued: null, sent: false };
     try {
       await deletePlay(getSupabase(), play.id);
       updatePlays((plays) => plays.filter((item) => item.id !== play.id));
-      showToast(`Removed ${play.AlbumName ?? "the play"}`, {
+      const when = parseStoredTime(play.Date);
+      const onLastFm = sent && lastFm?.link && when;
+      showToast(onLastFm ? `Removed ${play.AlbumName ?? "the play"}. It's still on Last.fm` : `Removed ${play.AlbumName ?? "the play"}`, {
+        link: onLastFm ? { href: libraryDayUrl(lastFm!.link!.name, when), label: "Last.fm" } : undefined,
         undo: async () => {
           try {
             const { id: _oldId, ...row } = play;
             const saved = await insertPlay(getSupabase(), row);
             updatePlays((plays) => [...plays, saved]);
+            if (queued) lastFm?.restore(queued, saved);
           } catch (error) {
             showError("Couldn't put it back", error);
           }
         },
       });
     } catch (error) {
+      if (queued) lastFm?.restore(queued, play);
       showError("Couldn't delete the play", error);
     }
-  }, [showError, showToast, updatePlays]);
+  }, [lastFm, showError, showToast, updatePlays]);
 
   const addRecord = useCallback(async (row: VinylRecord) => {
     try {
