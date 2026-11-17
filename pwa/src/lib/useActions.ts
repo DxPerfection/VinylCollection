@@ -12,6 +12,7 @@ import { addPending, isConnectionProblem, isPending, removePending } from "./off
 import { parseStoredTime } from "./format";
 import { deletePlay, insertPlay, newPlayRow, type PlayPart } from "./plays";
 import type { CollectionData, PlayRow, VinylRecord, WantRow } from "./records";
+import { deleteDismissed, type DismissedRow, insertDismissed, type Suggestion } from "./suggestions";
 import { getSupabase } from "./supabaseClient";
 import type { LastFmHandle, QueueOutcome } from "./useLastFm";
 import { updateWant } from "./wants";
@@ -40,6 +41,8 @@ export interface Actions {
   editWant: (want: WantRow, change: Partial<WantRow>) => Promise<boolean>;
   removeWant: (want: WantRow) => Promise<boolean>;
   gotWant: (want: WantRow, row: VinylRecord) => Promise<boolean>;
+  // "Not for me" on a suggestion: saved so that artist never comes back; Undo takes it off again
+  dismissSuggestion: (suggestion: Suggestion, update: (change: (rows: DismissedRow[]) => DismissedRow[]) => void) => Promise<boolean>;
 }
 
 export function useActions(updateData: UpdateData, showToast: ShowToast, lastFm?: ScrobbleHooks): Actions {
@@ -349,5 +352,30 @@ export function useActions(updateData: UpdateData, showToast: ShowToast, lastFm?
     return true;
   }, [putWantBack, showError, showToast, updateRecords, updateWants]);
 
-  return { logPlay, removePlay, addRecord, addWant, matchRecord, rateRecord, editRecord, removeRecord, editWant, removeWant, gotWant };
+  const dismissSuggestion = useCallback(async (suggestion: Suggestion,
+    update: (change: (rows: DismissedRow[]) => DismissedRow[]) => void) => {
+    try {
+      const saved = await insertDismissed(getSupabase(), suggestion);
+      update((rows) => [...rows, saved]);
+      showToast(`Won't suggest ${suggestion.artist} again`, {
+        undo: async () => {
+          try {
+            await deleteDismissed(getSupabase(), saved.id);
+            update((rows) => rows.filter((row) => row.id !== saved.id));
+          } catch (error) {
+            showError("Couldn't undo", error);
+          }
+        },
+      });
+      return true;
+    } catch (error) {
+      showError("Couldn't save that", error);
+      return false;
+    }
+  }, [showError, showToast]);
+
+  return {
+    logPlay, removePlay, addRecord, addWant, matchRecord, rateRecord, editRecord, removeRecord, editWant, removeWant, gotWant,
+    dismissSuggestion,
+  };
 }

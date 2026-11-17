@@ -7,13 +7,17 @@
 // POST { "action": "session", "token": "..." }                  ->  { "name": "harunemre", "sessionKey": "..." }
 // POST { "action": "scrobble", "sessionKey": "...", "scrobbles": Scrobble[] (at most 50) }
 //                                                               ->  { "accepted": 12, "ignored": 0, "ignoredCodes": [] }
+// For want list suggestions (all within 15 seconds; artists not done by then are left out):
+// POST { "action": "topArtists", "user": "harunemre" }          ->  { "artists": [{ "name", "count" }] }
+// POST { "action": "similar", "artists": ["Air", ...] (25 at most) }  ->  { "similar": { "Air": [{ "name", "match" }] } }
+// POST { "action": "topAlbums", "artists": ["Phoenix", ...] }  ->  { "albums": { "Phoenix": [{ "name", "count", "imageUrl" }] } }
 // When it goes wrong the answer says what to do: { reconnect: true } (connect again), { retryLater: true },
 // { timedOut: true } or { notSetUp: true } (the secrets are missing).
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 import {
-  allowedReturn, batchLimit, cleanScrobbles, connectLink, getSession, isTimeout, LastFmError, needsReconnect, sendScrobbles,
-  worthRetrying,
+  allowedReturn, batchLimit, cleanScrobbles, connectLink, forEachArtist, getSession, isTimeout, LastFmError, needsReconnect,
+  sendScrobbles, similarArtists, topAlbums, topArtists, worthRetrying,
 } from "./lastFmApi.ts";
 
 const corsHeaders = {
@@ -44,7 +48,7 @@ Deno.serve(async (request) => {
   }
   const keys = { apiKey, sharedSecret };
 
-  let body: { action?: string; returnTo?: string; token?: string; sessionKey?: string; scrobbles?: unknown };
+  let body: { action?: string; returnTo?: string; token?: string; sessionKey?: string; scrobbles?: unknown; user?: string; artists?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -68,6 +72,18 @@ Deno.serve(async (request) => {
       const scrobbles = cleanScrobbles(body.scrobbles);
       if (scrobbles.length > batchLimit) return reply({ error: `Send at most ${batchLimit} scrobbles at a time.` }, 400);
       return reply(await sendScrobbles(fetch, keys, sessionKey, scrobbles));
+    }
+    if (body.action === "topArtists") {
+      const user = String(body.user ?? "").trim().slice(0, 64);
+      if (!user) return reply({ artists: [] });
+      return reply({ artists: await topArtists(fetch, apiKey, user) });
+    }
+    const artists = Array.isArray(body.artists) ? body.artists.map(String) : [];
+    if (body.action === "similar") {
+      return reply({ similar: await forEachArtist(artists, (artist, finishBy) => similarArtists(fetch, apiKey, artist, 20, finishBy)) });
+    }
+    if (body.action === "topAlbums") {
+      return reply({ albums: await forEachArtist(artists, (artist, finishBy) => topAlbums(fetch, apiKey, artist, 5, finishBy)) });
     }
     return reply({ error: "Unknown action." }, 400);
   } catch (error) {

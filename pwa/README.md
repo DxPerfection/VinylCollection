@@ -50,6 +50,14 @@ this one covers everything. It reads the same Supabase tables, behind the same G
   plays older than two weeks can't go to Last.fm. Deleting a play takes its waiting tracks off; tracks already
   scrobbled can't be removed by an app, so the message links to that day in the Last.fm library. Account shows
   what is waiting. The key and secret live in the `lastFm` Supabase function.
+- Suggested for you (top of the Wants tab): records you might like. Your taste is the artists you play most (a
+  play loses half its weight every 90 days), rate 4 or 5 stars, own, and your Last.fm top artists; Last.fm's similar
+  artists for the top ten (Last.fm has no personal recommendations API) are scored by how similar and how much you
+  like the artist they came from, leaving out artists you own, want or turned down. Each new artist's best known
+  album (hits collections and live albums passed over) is found on Discogs as a vinyl release with its lowest price.
+  Each card says why ("Like Daft Punk (14 plays) and Air (rated 5★)"), Want it adds it to the want list, Not for me
+  hides that artist for good (`DismissedSuggestions`, migration 009, with Undo). Worked out once a day or on Refresh
+  and kept on the phone in between (`src/lib/suggestions.ts`).
 - The bottom tab bar
 - Installing to the home screen (app manifest, icons and a service worker)
 
