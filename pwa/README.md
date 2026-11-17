@@ -29,6 +29,10 @@ this one covers everything. It reads the same Supabase tables, behind the same G
   that release, then takes it off the list, with Undo) and Remove (with Undo)
 - Stats: streaks, days listened, never played, most listened albums (plays or minutes), hours per week, top
   artists, plays by weekday, year in review, gathering dust, genres, decades and condition, as in the Streamlit Dashboard
+- Collection value at the top of Stats: the cheapest copy for sale on Discogs of each matched record, added up, with
+  how many records are counted and why the rest aren't (not matched, none for sale, not checked yet), the three most
+  valuable, and a button that matches unmatched records one after another. Prices are kept on the phone for a day
+  and asked for at most 25 at a time, 30 seconds apart, to stay inside Discogs' rate limit
 - Account: download CSV backups of records, plays and want list, in the same format the Streamlit Restore reads,
   and restore from one (add-only: rows the app already has are left alone, nothing is changed or deleted)
 - Add by hand: "Not on Discogs? Add it by hand" on the Add screen, the same form without a Discogs release

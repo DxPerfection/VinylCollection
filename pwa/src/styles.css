@@ -368,3 +368,12 @@ a { color: var(--accent); }
 .pressingRow dd { margin: 0; overflow-wrap: anywhere; }
 .noPressing { margin: 0; line-height: 1.45; }
 .matchRun { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+
+/* Collection value on Stats */
+.valueCard { background: var(--surface); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+.valueTotal { font-size: 28px; }
+.valueGaps { margin: 0; padding-left: 18px; line-height: 1.5; }
+.valueCard .secondaryButton { margin-top: 4px; align-self: flex-start; }
+.valueTop { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.valueTop li { display: flex; justify-content: space-between; gap: 12px; }
+.valueName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
