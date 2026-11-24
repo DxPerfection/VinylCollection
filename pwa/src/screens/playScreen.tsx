@@ -5,8 +5,9 @@ import { CoverArt } from "../components/coverArt";
 import { type RecordActions, RecordSheets } from "../components/recordSheets";
 import { genresInUse, linkPlays } from "../lib/collectionView";
 import { minutesText, stars, yearText } from "../lib/format";
+import { forgottenRecords, readSnoozed, snooze } from "../lib/forgotten";
 import {
-  decadesInUse, lastPlayedArtist, lengthLimits, noFilter, pickCandidates, type PickFilter, pickReason, ratingLimits, weightedPick,
+  daysText, decadesInUse, lastPlayedArtist, lengthLimits, noFilter, pickCandidates, type PickFilter, pickReason, ratingLimits, weightedPick,
 } from "../lib/picker";
 import type { CollectionData } from "../lib/records";
 
@@ -48,6 +49,8 @@ export function PlayScreen({ data, actions, random = Math.random }: PlayScreenPr
   const [memory, setMemoryState] = useState<PickMemory>(readMemory);
   const [openId, setOpenId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [snoozed, setSnoozed] = useState<Record<string, number>>(readSnoozed);
+  const [playingId, setPlayingId] = useState<number | null>(null);
   const setMemory = (next: PickMemory) => { setMemoryState(next); writeMemory(next); };
 
   const records = useMemo(() => linkPlays(data.records, data.plays), [data]);
@@ -86,6 +89,13 @@ export function PlayScreen({ data, actions, random = Math.random }: PlayScreenPr
     setSaving(false);
   };
 
+  const forgotten = useMemo(() => forgottenRecords(records, snoozed), [records, snoozed]);
+  const playForgotten = async (record: (typeof records)[number]) => {
+    setPlayingId(Number(record.ID));
+    await actions.logPlay(record, "Full album", new Date());
+    setPlayingId(null);
+  };
+
   const filtersOn = filter.genres.length + filter.decades.length + (filter.maxMinutes ? 1 : 0) + (filter.minRating ? 1 : 0);
   const details = pick ? [pick.record.Genre, yearText(pick.record.Year), minutesText(pick.record.DurationMins)].filter(Boolean).join(" · ") : "";
 
@@ -120,6 +130,31 @@ export function PlayScreen({ data, actions, random = Math.random }: PlayScreenPr
             <p className="muted tiny">
               "Play it" logs the whole album now. Tap the cover to log a side or an earlier time instead.
             </p>
+          </section>
+        )}
+
+        {forgotten.length > 0 && (
+          <section className="forgottenCard" aria-label="Forgotten records">
+            <h2 className="fieldLabel">Haven't heard these in a while</h2>
+            <ul className="forgottenList">
+              {forgotten.map(({ record, daysAgo }) => (
+                <li key={record.ID} className="forgottenItem">
+                  <button type="button" className="forgottenOpen" aria-label={`Open ${record.AlbumName}`}
+                    onClick={() => setOpenId(Number(record.ID))}>
+                    <CoverArt url={record.CoverURL} className="forgottenCover" />
+                    <span className="dustText">
+                      <span className="playAlbum">{record.AlbumName}</span>
+                      <span className="muted small">{record.Artist} · last played {daysText(daysAgo)} ago</span>
+                    </span>
+                  </button>
+                  <div className="forgottenButtons">
+                    <button type="button" className="smallButton smallPrimary" disabled={playingId === Number(record.ID)}
+                      onClick={() => playForgotten(record)}>{playingId === Number(record.ID) ? "Saving…" : "Play it"}</button>
+                    <button type="button" className="smallButton" onClick={() => setSnoozed(snooze(snoozed, Number(record.ID)))}>Not now</button>
+                  </div>
+                </li>
+              ))}
+            </ul>
           </section>
         )}
 

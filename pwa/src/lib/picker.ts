@@ -109,7 +109,7 @@ export function weightedPick(candidates: Candidate[], random: () => number = Mat
   return candidates[candidates.length - 1];
 }
 
-function daysText(days: number): string {
+export function daysText(days: number): string {
   if (days === 1) return "1 day";
   if (days < 14) return `${days} days`;
   if (days < 60) return `${Math.round(days / 7)} weeks`;
