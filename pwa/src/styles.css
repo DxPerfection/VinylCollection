@@ -317,18 +317,37 @@ a { color: var(--accent); }
 .dustWhen { flex: none; }
 
 /* Collection header: smaller than the other screens, and the search, sort and genres fold away while you scroll down */
-.collectionHeader { padding: calc(12px + env(safe-area-inset-top)) 16px 10px; gap: 10px; transition: padding 200ms ease, gap 200ms ease; }
+/* The header floats over the list and slides up as one piece, so the records never jump; only transform and opacity animate */
+.collectionScreen { position: relative; }
+.collectionHeader {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 2; background: var(--bg);
+  padding: calc(12px + env(safe-area-inset-top)) 16px 10px; gap: 0;
+  transition: transform 280ms cubic-bezier(.2, .8, .2, 1), box-shadow 280ms ease;
+}
+.collectionHeader .titleRow { transition: transform 280ms cubic-bezier(.2, .8, .2, 1); position: relative; z-index: 1; }
+.collectionHeader.folded { transform: translateY(calc(-1 * var(--foldHeight, 0px))); box-shadow: 0 1px 0 var(--line), 0 10px 18px -12px rgba(0, 0, 0, .8); }
+.collectionHeader.folded .titleRow { transform: translateY(var(--foldHeight, 0px)); }
+.collectionHeader h1 { transition: font-size 250ms ease; }
+.collectionHeader.folded h1 { font-size: 18px; }
+.collectionHeader.folded .countText { display: none; }
+.foldedButtons { display: flex; gap: 6px; flex: none; opacity: 0; transition: opacity 200ms ease; }
+.collectionHeader.folded .foldedButtons { opacity: 1; }
+.foldedPill {
+  height: 30px; padding: 0 12px; border-radius: 15px; border: 1px solid var(--lineStrong); background: var(--surface);
+  color: var(--text); font-size: 12.5px; display: inline-flex; align-items: center; max-width: 140px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.foldedPill svg { width: 15px; height: 15px; }
 .collectionHeader .titleRow { align-items: center; min-height: 40px; }
-.collectionHeader .titleText { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.collectionHeader .titleText { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
 .collectionHeader h1 { font-size: 24px; }
 .collectionHeader .titleText .small { white-space: nowrap; }
 .collectionHeader .headerButtons { gap: 8px; }
 .collectionHeader .roundButton { width: 38px; height: 38px; border-radius: 19px; }
 .collectionHeader .roundButton svg { width: 18px; height: 18px; }
-.foldAway { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 200ms ease, opacity 160ms ease; }
-.foldInner { min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 10px; margin: 0 -16px; padding: 0 16px; }
-.collectionHeader.folded { gap: 0; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
-.collectionHeader.folded .foldAway { grid-template-rows: 0fr; opacity: 0; }
+.foldAway { padding-top: 10px; transition: opacity 200ms ease; }
+.foldInner { display: flex; flex-direction: column; gap: 10px; margin: 0 -16px; padding: 0 16px; }
+.collectionHeader.folded .foldAway { opacity: 0; visibility: hidden; transition: opacity 200ms ease, visibility 0s 200ms; }
 .searchRow { display: flex; gap: 8px; }
 .searchRow .searchBox { flex: 1; min-width: 0; height: 40px; }
 .sortButton {
@@ -351,8 +370,8 @@ a { color: var(--accent); }
 .compactGrid .tileArtist { font-size: 11px; }
 .compactGrid .tileStars { font-size: 10px; }
 .compactGrid .yearBadge { font-size: 10px; left: 5px; bottom: 4px; padding: 1px 4px; }
-.collectionHeader + .scrollArea { padding-left: 16px; padding-right: 16px; }
-@media (prefers-reduced-motion: reduce) { .collectionHeader, .foldAway { transition: none; } }
+.collectionHeader + .scrollArea { padding-left: 16px; padding-right: 16px; padding-top: calc(var(--headerHeight, 170px) + 4px); scroll-padding-top: var(--headerHeight, 170px); }
+@media (prefers-reduced-motion: reduce) { .collectionHeader, .collectionHeader .titleRow, .collectionHeader h1, .foldAway, .foldedButtons { transition: none; } }
 
 /* Offline: a slim line above the tab bar, and plays not sent yet */
 .offlineBar {

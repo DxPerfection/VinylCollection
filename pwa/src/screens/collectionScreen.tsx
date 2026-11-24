@@ -1,5 +1,5 @@
 // Collection: your records as a cover grid, with search, genre chips and a sort
-import { useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { CoverArt } from "../components/coverArt";
 import { PlusIcon, SearchIcon, SortIcon, UserIcon } from "../components/icons";
@@ -22,7 +22,31 @@ export function CollectionScreen({ data, onOpenAccount, onOpenAdd, actions }: Co
   const [filter, setFilter] = useState<CollectionFilter>({ search: "", genre: null, sort: "Recently added" });
   const [openId, setOpenId] = useState<number | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
-  const folded = useFoldOnScroll(scroller);
+  const [folded, setFolded] = useFoldOnScroll(scroller);
+  const screenRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+  const foldRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // The header floats over the list. The list starts below it, and folding slides the header up by the height of the search and genres
+  useLayoutEffect(() => {
+    const screen = screenRef.current, header = headerRef.current, fold = foldRef.current;
+    if (!screen || !header || !fold) return;
+    const measure = () => {
+      screen.style.setProperty("--headerHeight", `${header.offsetHeight}px`);
+      screen.style.setProperty("--foldHeight", `${fold.offsetHeight}px`);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(fold);
+    return () => observer.disconnect();
+  }, []);
+
+  const openHeader = (focusSearch: boolean) => {
+    setFolded(false);
+    if (focusSearch) searchRef.current?.focus({ preventScroll: true });
+  };
 
   const records = useMemo(() => linkPlays(data.records, data.plays), [data]);
   const genres = useMemo(() => genresInUse(data.records), [data]);
@@ -36,12 +60,16 @@ export function CollectionScreen({ data, onOpenAccount, onOpenAdd, actions }: Co
     : `Showing ${shown.length} of ${total}`;
 
   return (
-    <div className="screen">
-      <header className={folded ? "screenHeader collectionHeader folded" : "screenHeader collectionHeader"}>
+    <div className="screen collectionScreen" ref={screenRef}>
+      <header ref={headerRef} className={folded ? "screenHeader collectionHeader folded" : "screenHeader collectionHeader"}>
         <div className="titleRow">
           <div className="titleText">
             <h1>Collection</h1>
-            <span className="muted small">{countText}</span>
+            <span className="muted small countText">{countText}</span>
+            <span className="foldedButtons" aria-hidden={!folded || undefined} inert={!folded || undefined}>
+              <button type="button" className="foldedPill" onClick={() => openHeader(false)}>{filter.genre ?? (filter.unmatchedOnly ? "No Discogs info" : "All")}</button>
+              <button type="button" className="foldedPill" aria-label="Search" onClick={() => openHeader(true)}><SearchIcon /></button>
+            </span>
           </div>
           <div className="headerButtons">
             <button type="button" className="roundButton" aria-label="Account" onClick={onOpenAccount}>
@@ -53,12 +81,12 @@ export function CollectionScreen({ data, onOpenAccount, onOpenAdd, actions }: Co
           </div>
         </div>
 
-        <div className="foldAway" aria-hidden={folded || undefined} inert={folded || undefined}>
+        <div className="foldAway" ref={foldRef} aria-hidden={folded || undefined} inert={folded || undefined}>
           <div className="foldInner">
             <div className="searchRow">
               <label className="searchBox">
                 <SearchIcon />
-                <input type="search" placeholder="Artist, album or note" aria-label="Search artist, album or note"
+                <input ref={searchRef} type="search" placeholder="Artist, album or note" aria-label="Search artist, album or note"
                   value={filter.search} onChange={(event) => setFilter({ ...filter, search: event.target.value })} />
               </label>
               <label className="sortButton">
