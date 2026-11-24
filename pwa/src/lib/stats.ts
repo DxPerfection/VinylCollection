@@ -197,3 +197,60 @@ export function averageRating(records: VinylRecord[]): number | null {
   const ratings = records.map((record) => ratingOf(record.Rating)).filter(Boolean);
   return ratings.length ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10 : null;
 }
+
+export interface YearRecord {
+  record: VinylRecord;
+  plays: number;
+  minutes: number;
+}
+
+export interface YearRecap extends YearReview {
+  year: number;
+  topRecords: YearRecord[];
+  topGenre: string | null;
+  topGenreMinutes: number;
+  topGenrePlays: number;
+  notPlayed: VinylRecord[]; // records you own that got no play this year, oldest added first
+}
+
+// The "year in vinyl" page: the stat tiles plus your top records, the genre you played most and what stayed on the shelf
+export function yearRecap(records: VinylRecord[], facts: PlayFact[], year: number, count = 5): YearRecap {
+  const review = yearInReview(facts, year);
+  const inYear = facts.filter((fact) => fact.when.getFullYear() === year);
+  const byId = new Map(records.map((record) => [Number(record.ID), record]));
+
+  const perRecord = new Map<number, { plays: number; minutes: number }>();
+  const perGenre = new Map<string, { plays: number; minutes: number }>();
+  for (const fact of inYear) {
+    const record = fact.vinylId === null ? undefined : byId.get(fact.vinylId);
+    if (!record) continue;
+    const one = perRecord.get(fact.vinylId!) ?? { plays: 0, minutes: 0 };
+    one.plays += 1;
+    one.minutes += fact.minutes;
+    perRecord.set(fact.vinylId!, one);
+    const genre = String(record.Genre ?? "").trim();
+    if (!genre) continue;
+    const group = perGenre.get(genre) ?? { plays: 0, minutes: 0 };
+    group.plays += 1;
+    group.minutes += fact.minutes;
+    perGenre.set(genre, group);
+  }
+
+  const topRecords = [...perRecord.entries()]
+    .sort((a, b) => b[1].plays - a[1].plays || b[1].minutes - a[1].minutes || a[0] - b[0])
+    .slice(0, count)
+    .map(([id, totals]) => ({ record: byId.get(id)!, ...totals }));
+  const genre = [...perGenre.entries()].sort((a, b) => b[1].minutes - a[1].minutes || a[0].localeCompare(b[0]))[0];
+  const notPlayed = records.filter((record) => !perRecord.has(Number(record.ID)))
+    .sort((a, b) => Number(a.ID) - Number(b.ID));
+
+  return {
+    ...review,
+    year,
+    topRecords,
+    topGenre: genre?.[0] ?? null,
+    topGenreMinutes: genre?.[1].minutes ?? 0,
+    topGenrePlays: genre?.[1].plays ?? 0,
+    notPlayed,
+  };
+}

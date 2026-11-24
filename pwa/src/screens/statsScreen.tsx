@@ -10,6 +10,7 @@ import {
   averageRating, type Bar, conditionBars, decadeBars, gatheringDust, genreBars, minutesLabel, neverPlayedCount, playFacts,
   playsByWeekday, reviewYears, streaks, topAlbums, topArtists, weeklyHours, yearInReview,
 } from "../lib/stats";
+import { YearReviewScreen } from "./yearReviewScreen";
 
 const dayText = (days: number) => `${days} ${days === 1 ? "day" : "days"}`;
 
@@ -18,6 +19,7 @@ export function StatsScreen({ data, actions }: { data: CollectionData; actions: 
   const years = useMemo(() => reviewYears(facts), [facts]);
   const [rankBy, setRankBy] = useState<"Plays" | "Minutes">("Plays");
   const [year, setYear] = useState<number | null>(null);
+  const [yearOpen, setYearOpen] = useState(false);
   const shownYear = year !== null && years.includes(year) ? year : years[0];
 
   const runs = streaks(facts);
@@ -87,10 +89,10 @@ export function StatsScreen({ data, actions }: { data: CollectionData; actions: 
               <ColumnChart bars={playsByWeekday(facts)} unit=" plays" />
             </section>
 
-            {review && (
-              <section className="statSection" aria-label="Year in review">
+            {review && shownYear !== undefined && (
+              <section className="statSection yearTeaser" aria-label="Year in review">
                 <div className="sectionHead">
-                  <h2>Year in review</h2>
+                  <h2>{shownYear} in vinyl</h2>
                   {years.length > 1 && (
                     <label className="sortPicker">
                       <span className="visuallyHidden">Year</span>
@@ -100,14 +102,11 @@ export function StatsScreen({ data, actions }: { data: CollectionData; actions: 
                     </label>
                   )}
                 </div>
-                <div className="statGrid">
-                  <StatTile label="Listening time" value={minutesLabel(review.minutes)} note={`${review.plays} plays`} />
-                  <StatTile label="Albums played" value={String(review.albums)} note="different records" />
-                  <StatTile label="Busiest month" value={review.busiestMonth} note={minutesLabel(review.busiestMinutes)} />
-                  <StatTile label="Top artist" value={review.topArtist ?? "-"} note={review.topArtist ? minutesLabel(review.topArtistMinutes) : ""} />
-                </div>
-                {review.topAlbum && <p className="small">Most played album of {shownYear}: <strong className="accentText">{review.topAlbum}</strong></p>}
-                <ColumnChart bars={review.months} unit="h" labelEvery={1} compactLabels />
+                <p className="small">
+                  {minutesLabel(review.minutes)} over {review.plays} plays
+                  {review.topAlbum ? <> · top record <strong className="accentText">{review.topAlbum}</strong></> : null}
+                </p>
+                <button type="button" className="primaryButton" onClick={() => setYearOpen(true)}>See your year</button>
               </section>
             )}
 
@@ -142,6 +141,8 @@ export function StatsScreen({ data, actions }: { data: CollectionData; actions: 
             : <p className="muted small">Add release years to see your decades.</p>}
         </section>
 
+        {yearOpen && shownYear !== undefined && <YearReviewScreen data={data} startYear={shownYear} onClose={() => setYearOpen(false)} />}
+
         <section className="statSection" aria-label="Condition">
           <h2>Condition</h2>
           <BarList bars={conditionBars(data.records)} format={(value) => String(value)} />
@@ -151,7 +152,7 @@ export function StatsScreen({ data, actions }: { data: CollectionData; actions: 
   );
 }
 
-function StatTile({ label, value, note }: { label: string; value: string; note: string }) {
+export function StatTile({ label, value, note }: { label: string; value: string; note: string }) {
   return (
     <div className="statTile">
       <span className="muted tiny">{label}</span>
@@ -162,7 +163,7 @@ function StatTile({ label, value, note }: { label: string; value: string; note: 
 }
 
 // A ranked list: name, a bar for its share of the largest, and the value in text
-function BarList({ bars, format }: { bars: Bar[]; format: (value: number) => string }) {
+export function BarList({ bars, format }: { bars: Bar[]; format: (value: number) => string }) {
   const most = Math.max(1, ...bars.map((bar) => bar.value));
   return (
     <ol className="barList">
@@ -180,7 +181,7 @@ function BarList({ bars, format }: { bars: Bar[]; format: (value: number) => str
 }
 
 // Columns over time or days; tap a column to read its value
-function ColumnChart({ bars, unit, labelEvery = 1, compactLabels = false }:
+export function ColumnChart({ bars, unit, labelEvery = 1, compactLabels = false }:
   { bars: Bar[]; unit: string; labelEvery?: number; compactLabels?: boolean }) {
   const [picked, setPicked] = useState<number | null>(null);
   const most = Math.max(...bars.map((bar) => bar.value), 0);

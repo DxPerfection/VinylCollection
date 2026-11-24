@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { PlayRow } from "../src/lib/records";
 import {
   conditionBars, decadeBars, gatheringDust, genreBars, minutesLabel, playFacts, playsByWeekday, reviewYears, streaks, topAlbums,
-  topArtists, weeklyHours, yearInReview,
+  topArtists, weeklyHours, yearInReview, yearRecap,
 } from "../src/lib/stats";
 import { sampleRecords } from "./sampleData";
 
@@ -75,5 +75,14 @@ describe("stats", () => {
     expect(genreBars(sampleRecords)).toEqual([{ label: "Metal", value: 2 }, { label: "Electronic", value: 1 }, { label: "Rock", value: 1 }]);
     expect(decadeBars(sampleRecords)).toEqual([{ label: "1990s", value: 2 }, { label: "2000s", value: 2 }]);
     expect(conditionBars(sampleRecords)).toEqual([{ label: "Mint", value: 4 }]);
+  });
+
+  it("builds the year in vinyl page: top records, top genre and records not played that year", () => {
+    const recap = yearRecap(sampleRecords, facts, 2026);
+    expect(recap.topRecords.map((item) => [item.record.AlbumName, item.plays, item.minutes])).toEqual([
+      ["Rust In Peace", 2, 85], ["Discovery", 1, 61], ["The Bends", 1, 48]]);
+    expect([recap.topGenre, recap.topGenreMinutes, recap.topGenrePlays]).toEqual(["Metal", 85, 2]);
+    expect(recap.notPlayed.map((record) => record.AlbumName)).toEqual(["Hybrid Theory"]);
+    expect(yearRecap(sampleRecords, facts, 2025).notPlayed).toHaveLength(sampleRecords.length);
   });
 });
