@@ -391,3 +391,10 @@ a { color: var(--accent); }
 /* Your note on the record card */
 .noteBox { display: flex; flex-direction: column; gap: 6px; }
 .noteActions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Year in vinyl */
+.yearTeaser .primaryButton { align-self: flex-start; }
+.yearTopList { list-style: none; margin: 0; padding: 0; }
+.yearTopItem { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.yearRank { width: 1.4em; text-align: center; font-family: "Space Grotesk", sans-serif; font-weight: 700; color: var(--accent, #f2a93b); }
+.yearCover { width: 48px; height: 48px; border-radius: 6px; flex: none; object-fit: cover; }

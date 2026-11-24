@@ -31,4 +31,17 @@ describe("StatsScreen", () => {
     expect(screen.getByText("Log some plays to see your listening stats.")).toBeTruthy();
     expect(screen.getByRole("region", { name: "Decades" })).toBeTruthy();
   });
+
+  it("opens the year in vinyl page from Stats", () => {
+    render(<StatsScreen data={{ records: sampleRecords, plays: samplePlays, wants: [] }} actions={fakeActions()} />);
+    fireEvent.click(screen.getByRole("button", { name: "See your year" }));
+    const page = screen.getByRole("dialog", { name: "2026 in vinyl" });
+    expect(within(page).getByText("Metal")).toBeTruthy();
+    const top = within(page).getByRole("region", { name: "Top records" });
+    expect(within(top).getAllByRole("listitem")[0].textContent).toContain("Rust In Peace");
+    expect(within(page).getByRole("region", { name: "Never played this year" }).textContent).toContain("Hybrid Theory");
+    fireEvent.click(within(page).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
 });
+
