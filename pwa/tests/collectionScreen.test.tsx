@@ -19,6 +19,21 @@ describe("CollectionScreen", () => {
     expect(tileAlbums()).toEqual(["Hybrid Theory", "Discovery", "Rust In Peace", "The Bends"]);
   });
 
+  it("folds into a slim bar on scroll down, and its search button opens the header again", () => {
+    show();
+    const header = document.querySelector(".collectionHeader")!;
+    const list = document.querySelector(".scrollArea") as HTMLElement;
+    Object.defineProperty(list, "scrollHeight", { value: 5000 });
+    Object.defineProperty(list, "clientHeight", { value: 600 });
+    act(() => { list.scrollTop = 300; fireEvent.scroll(list); });
+    expect(header.classList.contains("folded")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    expect(header.classList.contains("folded")).toBe(false);
+    expect(document.activeElement).toBe(screen.getByLabelText("Search artist, album or note"));
+    act(() => { list.scrollTop = 600; fireEvent.scroll(list); });
+    expect(header.classList.contains("folded")).toBe(true);
+  });
+
   it("filters by search and by genre chip", () => {
     show();
     fireEvent.change(screen.getByLabelText("Search artist, album or note"), { target: { value: "daft" } });
